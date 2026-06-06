@@ -135,11 +135,11 @@ function gameLoop() {
   drawBird();
   drawObstacle();
 
-  if (birdY <= 0 || birdY >= 460) {
-    gameRunning = false;
-    document.getElementById("message").textContent = "Game over!";
-    return;
-  }
+if (birdY <= 0 || birdY >= 460 || checkCollision()) {
+  gameRunning = false;
+  document.getElementById("message").textContent = "Game over!";
+  return;
+}
 
   requestAnimationFrame(gameLoop);
 }
@@ -233,6 +233,46 @@ function handleMove(direction) {
   if (direction === "down") {
     diveThenRecover();
   }
+}
+
+function checkCollision() {
+
+  const birdSize = 40;
+
+  const obstacleWidth = 40;
+
+  const obstacleHeight = 160;
+
+  const obstacleY = 170;
+
+  const birdLeft = birdX;
+
+  const birdRight = birdX + birdSize;
+
+  const birdTop = birdY;
+
+  const birdBottom = birdY + birdSize;
+
+  const obstacleLeft = obstacleX;
+
+  const obstacleRight = obstacleX + obstacleWidth;
+
+  const obstacleTop = obstacleY;
+
+  const obstacleBottom = obstacleY + obstacleHeight;
+
+  const isColliding =
+
+    birdRight > obstacleLeft &&
+
+    birdLeft < obstacleRight &&
+
+    birdBottom > obstacleTop &&
+
+    birdTop < obstacleBottom;
+
+  return isColliding;
+
 }
 
 document.addEventListener("keydown", function(event) {
