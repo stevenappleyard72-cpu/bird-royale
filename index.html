@@ -23,6 +23,7 @@
     <button onclick="joinGame()">Join Game</button>
 
     <p id="message"></p>
+    <div id="playerList"></div>
   </div>
 
 <div id="gameArea">
@@ -42,7 +43,7 @@
       <button class="control-button" onclick="handleMove('down')">↓</button>
     </div>
   </div>
-
+  <script src="/socket.io/socket.io.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

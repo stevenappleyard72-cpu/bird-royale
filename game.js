@@ -6,7 +6,7 @@ let velocityY = 0;
 let velocityX = 0;
 
 const birdSize = 40;
-
+const socket = io();
 const obstacleWidth = 40;
 const obstacleSpacing = 170;
 const targetObstacleCount = 4;
@@ -56,11 +56,14 @@ function createGame() {
   const playerName = getPlayerName();
   currentGameCode = generateGameCode();
 
+  socket.emit("createGame", {
+    playerName,
+    roomCode: currentGameCode
+  });
+
   document.getElementById("message").textContent =
     playerName + " created game code: " + currentGameCode +
-    ". Press any movement control to start.";
-
-  prepareGame();
+    ". Waiting for players...";
 }
 
 function joinGame() {
@@ -74,11 +77,10 @@ function joinGame() {
 
   currentGameCode = code;
 
-  document.getElementById("message").textContent =
-    playerName + " joined game: " + currentGameCode +
-    ". Press any movement control to start.";
-
-  prepareGame();
+  socket.emit("joinGame", {
+    playerName,
+    roomCode: currentGameCode
+  });
 }
 
 function prepareGame() {
@@ -388,4 +390,34 @@ document.addEventListener("keydown", function(event) {
   if (event.code === "ArrowDown" || event.code === "KeyS") {
     handleMove("down");
   }
+});
+
+socket.on("roomUpdated", function(data) {
+
+  currentGameCode = data.roomCode;
+
+  document.getElementById("message").textContent =
+
+    "Game code: " + currentGameCode + ". Press any movement control to start.";
+
+  const playerList = document.getElementById("playerList");
+
+  playerList.innerHTML =
+
+    "<h3>Players</h3>" +
+
+    data.players.map(function(player) {
+
+      return "<div>" + player.name + "</div>";
+
+    }).join("");
+
+  prepareGame();
+
+});
+
+socket.on("joinError", function(message) {
+
+  document.getElementById("message").textContent = message;
+
 });
