@@ -20,7 +20,7 @@ function getObstacleSpeed() {
   if (window.innerWidth <= 500) {
     return 2;
   }
-  return 3;
+  return 2;
 }
 
 let gameWaitingToStart = false;
