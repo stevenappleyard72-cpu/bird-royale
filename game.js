@@ -5,6 +5,8 @@ let birdY = 220;
 let velocityY = 0;
 let velocityX = 0;
 
+let obstacleX = 350;
+
 const gravity = 0.45;
 const flapStrength = -7.8;
 const sideFlapStrength = -6.4;
@@ -13,6 +15,8 @@ const horizontalDrag = 0.92;
 
 const diveAmount = 45;
 const diveRecoveryDelay = 140;
+
+const obstacleSpeed = 3;
 
 let gameWaitingToStart = false;
 let countdownRunning = false;
@@ -72,11 +76,14 @@ function prepareGame() {
   velocityX = 0;
   velocityY = 0;
 
+  obstacleX = 350;
+
   gameWaitingToStart = true;
   countdownRunning = false;
   gameRunning = false;
 
   drawBird();
+  drawObstacle();
 }
 
 function startCountdown() {
@@ -122,8 +129,11 @@ function gameLoop() {
   birdX += velocityX;
   velocityX *= horizontalDrag;
 
+  moveObstacle();
+
   keepBirdInsideArena();
   drawBird();
+  drawObstacle();
 
   if (birdY <= 0 || birdY >= 460) {
     gameRunning = false;
@@ -134,10 +144,23 @@ function gameLoop() {
   requestAnimationFrame(gameLoop);
 }
 
+function moveObstacle() {
+  obstacleX -= obstacleSpeed;
+
+  if (obstacleX < -40) {
+    obstacleX = 420;
+  }
+}
+
 function drawBird() {
   const bird = document.querySelector(".bird");
   bird.style.left = birdX + "px";
   bird.style.top = birdY + "px";
+}
+
+function drawObstacle() {
+  const obstacle = document.querySelector(".obstacle");
+  obstacle.style.left = obstacleX + "px";
 }
 
 function keepBirdInsideArena() {
