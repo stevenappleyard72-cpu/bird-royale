@@ -100,14 +100,29 @@ button {
 }
 
 @media (max-width: 500px) {
+  body {
+    overflow-x: hidden;
+  }
+
   .panel,
   #gameArea,
   #controls {
-    width: 90vw;
+    width: 94vw;
+    box-sizing: border-box;
   }
 
   #gameArea {
-    height: 60vh;
+    height: 62vh;
+  }
+
+  input {
+    width: 80%;
+  }
+
+  .control-button {
+    width: 72px;
+    height: 58px;
+    font-size: 32px;
   }
 }
 

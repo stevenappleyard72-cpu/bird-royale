@@ -16,7 +16,12 @@ const horizontalDrag = 0.92;
 const diveAmount = 45;
 const diveRecoveryDelay = 140;
 
-const obstacleSpeed = 3;
+function getObstacleSpeed() {
+  if (window.innerWidth <= 500) {
+    return 2;
+  }
+  return 3;
+}
 
 let gameWaitingToStart = false;
 let countdownRunning = false;
@@ -145,8 +150,7 @@ if (birdY <= 0 || birdY >= 460 || checkCollision()) {
 }
 
 function moveObstacle() {
-  obstacleX -= obstacleSpeed;
-
+  obstacleX -= getObstacleSpeed();
   if (obstacleX < -40) {
     obstacleX = 420;
   }
