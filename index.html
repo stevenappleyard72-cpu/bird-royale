@@ -1,64 +1,235 @@
 <!DOCTYPE html>
+
 <html>
+
 <head>
+
   <title>Bird Royale</title>
+
   <style>
+
     body {
+
       margin: 0;
+
       font-family: Arial, sans-serif;
+
       background: #87ceeb;
+
       text-align: center;
+
     }
 
     h1 {
+
       margin-top: 30px;
+
     }
 
-    #gameArea {
-      width: 400px;
-      height: 500px;
+    .panel {
+
       background: white;
-      border: 4px solid black;
+
+      width: 420px;
+
       margin: 20px auto;
-      position: relative;
-      overflow: hidden;
+
+      padding: 20px;
+
+      border: 4px solid black;
+
+      border-radius: 10px;
+
     }
 
-    #bird {
-      width: 40px;
-      height: 40px;
-      background: gold;
-      border-radius: 50%;
-      position: absolute;
-      left: 80px;
-      top: 220px;
+    input {
+
+      font-size: 18px;
+
+      padding: 8px;
+
+      margin: 8px;
+
+      width: 250px;
+
     }
 
     button {
-      font-size: 20px;
-      padding: 10px 20px;
+
+      font-size: 18px;
+
+      padding: 10px 18px;
+
+      margin: 8px;
+
+      cursor: pointer;
+
+    }
+
+    #gameArea {
+
+      width: 420px;
+
+      height: 500px;
+
+      background: white;
+
+      border: 4px solid black;
+
+      margin: 20px auto;
+
+      position: relative;
+
+      overflow: hidden;
+
+      display: none;
+
+    }
+
+    .bird {
+
+      width: 40px;
+
+      height: 40px;
+
+      background: gold;
+
+      border-radius: 50%;
+
+      position: absolute;
+
+      left: 80px;
+
+      top: 220px;
+
     }
 
     #message {
-      font-weight: bold;
-    }
-  </style>
-</head>
-<body>
-  <h1>Bird Royale v0.2</h1>
 
-  <div id="gameArea">
-    <div id="bird"></div>
+      font-weight: bold;
+
+      font-size: 18px;
+
+    }
+
+  </style>
+
+</head>
+
+<body>
+
+  <h1>Bird Royale</h1>
+
+  <div class="panel" id="lobby">
+
+    <h2>Lobby</h2>
+
+    <input id="playerName" placeholder="Your name" />
+
+    <br />
+
+    <button onclick="createGame()">Create Game</button>
+
+    <hr />
+
+    <input id="gameCodeInput" placeholder="Game code" />
+
+    <br />
+
+    <button onclick="joinGame()">Join Game</button>
+
+    <p id="message"></p>
+
   </div>
 
-  <button onclick="startGame()">Start Game</button>
-  <p id="message"></p>
+  <div id="gameArea">
+
+    <div class="bird"></div>
+
+  </div>
 
   <script>
-    function startGame() {
-      document.getElementById("message").textContent =
-        "Bird Royale has started!";
+
+    let currentGameCode = "";
+
+    function generateGameCode() {
+
+      const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+      let code = "";
+
+      for (let i = 0; i < 4; i++) {
+
+        code += letters[Math.floor(Math.random() * letters.length)];
+
+      }
+
+      return code;
+
     }
+
+    function getPlayerName() {
+
+      const name = document.getElementById("playerName").value.trim();
+
+      if (name === "") {
+
+        return "Player";
+
+      }
+
+      return name;
+
+    }
+
+    function createGame() {
+
+      const playerName = getPlayerName();
+
+      currentGameCode = generateGameCode();
+
+      document.getElementById("message").textContent =
+
+        playerName + " created game code: " + currentGameCode;
+
+      showGameArea();
+
+    }
+
+    function joinGame() {
+
+      const playerName = getPlayerName();
+
+      const code = document.getElementById("gameCodeInput").value.trim().toUpperCase();
+
+      if (code === "") {
+
+        document.getElementById("message").textContent =
+
+          "Please enter a game code.";
+
+        return;
+
+      }
+
+      currentGameCode = code;
+
+      document.getElementById("message").textContent =
+
+        playerName + " joined game: " + currentGameCode;
+
+      showGameArea();
+
+    }
+
+    function showGameArea() {
+
+      document.getElementById("gameArea").style.display = "block";
+
+    }
+
   </script>
+
 </body>
+
 </html>
