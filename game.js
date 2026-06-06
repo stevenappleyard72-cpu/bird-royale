@@ -5,7 +5,15 @@ let birdY = 220;
 let velocityY = 0;
 let velocityX = 0;
 
-let obstacleX = 350;
+const birdSize = 40;
+
+const obstacleWidth = 40;
+const obstacleSpacing = 170;
+const targetObstacleCount = 4;
+
+let obstacleSpeed = 2;
+let obstacles = [];
+let obstaclesPassed = 0;
 
 const gravity = 0.45;
 const flapStrength = -7.8;
@@ -15,13 +23,6 @@ const horizontalDrag = 0.92;
 
 const diveAmount = 45;
 const diveRecoveryDelay = 140;
-
-function getObstacleSpeed() {
-  if (window.innerWidth <= 500) {
-    return 2;
-  }
-  return 2;
-}
 
 let gameWaitingToStart = false;
 let countdownRunning = false;
@@ -41,6 +42,14 @@ function generateGameCode() {
 function getPlayerName() {
   const name = document.getElementById("playerName").value.trim();
   return name === "" ? "Player" : name;
+}
+
+function getGameWidth() {
+  return document.getElementById("gameArea").clientWidth;
+}
+
+function getGameHeight() {
+  return document.getElementById("gameArea").clientHeight;
 }
 
 function createGame() {
@@ -81,14 +90,63 @@ function prepareGame() {
   velocityX = 0;
   velocityY = 0;
 
-  obstacleX = 350;
+  obstacleSpeed = 2;
+  obstaclesPassed = 0;
+  obstacles = [];
+
+  clearObstacleElements();
+
+  for (let i = 0; i < targetObstacleCount; i++) {
+    createObstaclePair((getGameWidth() - obstacleWidth) + i * obstacleSpacing);
+  }
 
   gameWaitingToStart = true;
   countdownRunning = false;
   gameRunning = false;
 
   drawBird();
-  drawObstacle();
+  drawObstacles();
+}
+
+function clearObstacleElements() {
+  const container = document.getElementById("obstacleContainer");
+  container.innerHTML = "";
+}
+
+function createObstaclePair(xPosition) {
+  const gameHeight = getGameHeight();
+  const maxTotalObstacleHeight = gameHeight / 2;
+
+  let topHeight = randomNumber(50, 170);
+  let bottomHeight = randomNumber(50, 170);
+
+  while (topHeight + bottomHeight > maxTotalObstacleHeight) {
+    topHeight = randomNumber(50, 170);
+    bottomHeight = randomNumber(50, 170);
+  }
+
+  const container = document.getElementById("obstacleContainer");
+
+  const topElement = document.createElement("div");
+  topElement.className = "obstacle top-obstacle";
+
+  const bottomElement = document.createElement("div");
+  bottomElement.className = "obstacle bottom-obstacle";
+
+  container.appendChild(topElement);
+  container.appendChild(bottomElement);
+
+  obstacles.push({
+    x: xPosition,
+    topHeight: topHeight,
+    bottomHeight: bottomHeight,
+    topElement: topElement,
+    bottomElement: bottomElement
+  });
+}
+
+function randomNumber(min, max) {
+  return Math.floor(min + Math.random() * (max - min + 1));
 }
 
 function startCountdown() {
@@ -134,25 +192,38 @@ function gameLoop() {
   birdX += velocityX;
   velocityX *= horizontalDrag;
 
-  moveObstacle();
+  moveObstacles();
 
   keepBirdInsideArena();
   drawBird();
-  drawObstacle();
+  drawObstacles();
 
-if (birdY <= 0 || birdY >= 460 || checkCollision()) {
-  gameRunning = false;
-  document.getElementById("message").textContent = "Game over!";
-  return;
-}
+  if (birdY <= 0 || birdY >= getGameHeight() - birdSize || checkCollision()) {
+    gameRunning = false;
+    document.getElementById("message").textContent =
+      "Game over! Obstacles passed: " + obstaclesPassed;
+    return;
+  }
 
   requestAnimationFrame(gameLoop);
 }
 
-function moveObstacle() {
-  obstacleX -= getObstacleSpeed();
-  if (obstacleX < -40) {
-    obstacleX = 420;
+function moveObstacles() {
+  for (let i = 0; i < obstacles.length; i++) {
+    obstacles[i].x -= obstacleSpeed;
+  }
+
+  while (obstacles.length > 0 && obstacles[0].x < -obstacleWidth) {
+    obstacles[0].topElement.remove();
+    obstacles[0].bottomElement.remove();
+    obstacles.shift();
+
+    obstaclesPassed++;
+
+    obstacleSpeed = 2;
+
+    const lastObstacle = obstacles[obstacles.length - 1];
+    createObstaclePair(lastObstacle.x + obstacleSpacing);
   }
 }
 
@@ -162,19 +233,63 @@ function drawBird() {
   bird.style.top = birdY + "px";
 }
 
-function drawObstacle() {
-  const obstacle = document.querySelector(".obstacle");
-  obstacle.style.left = obstacleX + "px";
+function drawObstacles() {
+  for (let i = 0; i < obstacles.length; i++) {
+    const obstacle = obstacles[i];
+
+    obstacle.topElement.style.left = obstacle.x + "px";
+    obstacle.topElement.style.height = obstacle.topHeight + "px";
+
+    obstacle.bottomElement.style.left = obstacle.x + "px";
+    obstacle.bottomElement.style.height = obstacle.bottomHeight + "px";
+  }
+}
+
+function checkCollision() {
+  const gameHeight = getGameHeight();
+
+  const birdLeft = birdX;
+  const birdRight = birdX + birdSize;
+  const birdTop = birdY;
+  const birdBottom = birdY + birdSize;
+
+  for (let i = 0; i < obstacles.length; i++) {
+    const obstacle = obstacles[i];
+
+    const obstacleLeft = obstacle.x;
+    const obstacleRight = obstacle.x + obstacleWidth;
+
+    const overlapsHorizontally =
+      birdRight > obstacleLeft &&
+      birdLeft < obstacleRight;
+
+    const hitsTop =
+      overlapsHorizontally &&
+      birdTop < obstacle.topHeight;
+
+    const hitsBottom =
+      overlapsHorizontally &&
+      birdBottom > gameHeight - obstacle.bottomHeight;
+
+    if (hitsTop || hitsBottom) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function keepBirdInsideArena() {
+  const gameWidth = getGameWidth();
+  const gameHeight = getGameHeight();
+
   if (birdX < 0) {
     birdX = 0;
     velocityX = 0;
   }
 
-  if (birdX > 380) {
-    birdX = 380;
+  if (birdX > gameWidth - birdSize) {
+    birdX = gameWidth - birdSize;
     velocityX = 0;
   }
 
@@ -182,8 +297,8 @@ function keepBirdInsideArena() {
     birdY = 0;
   }
 
-  if (birdY > 460) {
-    birdY = 460;
+  if (birdY > gameHeight - birdSize) {
+    birdY = gameHeight - birdSize;
   }
 }
 
@@ -237,46 +352,6 @@ function handleMove(direction) {
   if (direction === "down") {
     diveThenRecover();
   }
-}
-
-function checkCollision() {
-
-  const birdSize = 40;
-
-  const obstacleWidth = 40;
-
-  const obstacleHeight = 160;
-
-  const obstacleY = 170;
-
-  const birdLeft = birdX;
-
-  const birdRight = birdX + birdSize;
-
-  const birdTop = birdY;
-
-  const birdBottom = birdY + birdSize;
-
-  const obstacleLeft = obstacleX;
-
-  const obstacleRight = obstacleX + obstacleWidth;
-
-  const obstacleTop = obstacleY;
-
-  const obstacleBottom = obstacleY + obstacleHeight;
-
-  const isColliding =
-
-    birdRight > obstacleLeft &&
-
-    birdLeft < obstacleRight &&
-
-    birdBottom > obstacleTop &&
-
-    birdTop < obstacleBottom;
-
-  return isColliding;
-
 }
 
 document.addEventListener("keydown", function(event) {

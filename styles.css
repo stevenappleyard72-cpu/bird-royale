@@ -129,8 +129,13 @@ button {
 .obstacle {
   position: absolute;
   width: 40px;
-  height: 160px;
   background: green;
-  left: 350px;
-  top: 170px;
+}
+
+.top-obstacle {
+  top: 0;
+}
+
+.bottom-obstacle {
+  bottom: 0;
 }
