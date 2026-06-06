@@ -1,4 +1,10 @@
+const socket = io();
+
 let currentGameCode = "";
+let hostId = "";
+let mySocketId = "";
+
+let players = [];
 
 let birdX = 80;
 let birdY = 220;
@@ -6,7 +12,7 @@ let velocityY = 0;
 let velocityX = 0;
 
 const birdSize = 40;
-const socket = io();
+
 const obstacleWidth = 40;
 const obstacleSpacing = 170;
 const targetObstacleCount = 4;
@@ -14,6 +20,8 @@ const targetObstacleCount = 4;
 let obstacleSpeed = 2;
 let obstacles = [];
 let obstaclesPassed = 0;
+let obstaclePlan = [];
+let nextObstaclePlanIndex = 0;
 
 const gravity = 0.45;
 const flapStrength = -7.8;
@@ -27,6 +35,10 @@ const diveRecoveryDelay = 140;
 let gameWaitingToStart = false;
 let countdownRunning = false;
 let gameRunning = false;
+
+socket.on("connect", function() {
+  mySocketId = socket.id;
+});
 
 function generateGameCode() {
   const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -60,10 +72,6 @@ function createGame() {
     playerName,
     roomCode: currentGameCode
   });
-
-  document.getElementById("message").textContent =
-    playerName + " created game code: " + currentGameCode +
-    ". Waiting for players...";
 }
 
 function joinGame() {
@@ -87,27 +95,34 @@ function prepareGame() {
   document.getElementById("gameArea").style.display = "block";
   document.getElementById("controls").style.display = "block";
 
-  birdX = 80;
-  birdY = 220;
+  const myPlayer = players.find(function(player) {
+    return player.id === mySocketId;
+  });
+
+  if (myPlayer) {
+    birdX = myPlayer.x;
+    birdY = myPlayer.y;
+  } else {
+    birdX = 80;
+    birdY = 220;
+  }
+
   velocityX = 0;
   velocityY = 0;
 
   obstacleSpeed = 2;
   obstaclesPassed = 0;
   obstacles = [];
+  obstaclePlan = [];
+  nextObstaclePlanIndex = 0;
 
   clearObstacleElements();
-
-  for (let i = 0; i < targetObstacleCount; i++) {
-    createObstaclePair((getGameWidth() - obstacleWidth) + i * obstacleSpacing);
-  }
 
   gameWaitingToStart = true;
   countdownRunning = false;
   gameRunning = false;
 
-  drawBird();
-  drawObstacles();
+  drawPlayers();
 }
 
 function clearObstacleElements() {
@@ -116,16 +131,17 @@ function clearObstacleElements() {
 }
 
 function createObstaclePair(xPosition) {
-  const gameHeight = getGameHeight();
-  const maxTotalObstacleHeight = gameHeight / 2;
-
-  let topHeight = randomNumber(50, 170);
-  let bottomHeight = randomNumber(50, 170);
-
-  while (topHeight + bottomHeight > maxTotalObstacleHeight) {
-    topHeight = randomNumber(50, 170);
-    bottomHeight = randomNumber(50, 170);
+  if (nextObstaclePlanIndex >= obstaclePlan.length) {
+    return;
   }
+
+  const gameHeight = getGameHeight();
+  const planItem = obstaclePlan[nextObstaclePlanIndex];
+
+  const topHeight = Math.floor(gameHeight * planItem.topPercent);
+  const bottomHeight = Math.floor(gameHeight * planItem.bottomPercent);
+
+  nextObstaclePlanIndex++;
 
   const container = document.getElementById("obstacleContainer");
 
@@ -140,15 +156,29 @@ function createObstaclePair(xPosition) {
 
   obstacles.push({
     x: xPosition,
-    topHeight: topHeight,
-    bottomHeight: bottomHeight,
-    topElement: topElement,
-    bottomElement: bottomElement
+    topHeight,
+    bottomHeight,
+    topElement,
+    bottomElement
   });
 }
 
-function randomNumber(min, max) {
-  return Math.floor(min + Math.random() * (max - min + 1));
+function createInitialObstacles() {
+  clearObstacleElements();
+  obstacles = [];
+  nextObstaclePlanIndex = 0;
+
+  for (let i = 0; i < targetObstacleCount; i++) {
+    createObstaclePair((getGameWidth() - obstacleWidth) + i * obstacleSpacing);
+  }
+
+  drawObstacles();
+}
+
+function requestStartGame() {
+  socket.emit("requestStartGame", {
+    roomCode: currentGameCode
+  });
 }
 
 function startCountdown() {
@@ -197,7 +227,11 @@ function gameLoop() {
   moveObstacles();
 
   keepBirdInsideArena();
-  drawBird();
+
+  updateMyPlayerPosition();
+  sendMyPlayerState();
+
+  drawPlayers();
   drawObstacles();
 
   if (birdY <= 0 || birdY >= getGameHeight() - birdSize || checkCollision()) {
@@ -208,6 +242,24 @@ function gameLoop() {
   }
 
   requestAnimationFrame(gameLoop);
+}
+
+function updateMyPlayerPosition() {
+  for (let i = 0; i < players.length; i++) {
+    if (players[i].id === mySocketId) {
+      players[i].x = birdX;
+      players[i].y = birdY;
+      return;
+    }
+  }
+}
+
+function sendMyPlayerState() {
+  socket.emit("playerState", {
+    roomCode: currentGameCode,
+    x: birdX,
+    y: birdY
+  });
 }
 
 function moveObstacles() {
@@ -225,14 +277,33 @@ function moveObstacles() {
     obstacleSpeed = 2;
 
     const lastObstacle = obstacles[obstacles.length - 1];
-    createObstaclePair(lastObstacle.x + obstacleSpacing);
+
+    if (lastObstacle) {
+      createObstaclePair(lastObstacle.x + obstacleSpacing);
+    }
   }
 }
 
-function drawBird() {
-  const bird = document.querySelector(".bird");
-  bird.style.left = birdX + "px";
-  bird.style.top = birdY + "px";
+function drawPlayers() {
+  const container = document.getElementById("playersContainer");
+  container.innerHTML = "";
+
+  for (let i = 0; i < players.length; i++) {
+    const player = players[i];
+
+    const bird = document.createElement("div");
+    bird.className = "player-bird";
+    bird.style.left = player.x + "px";
+    bird.style.top = player.y + "px";
+    bird.style.background = player.colour;
+
+    const name = document.createElement("div");
+    name.className = "player-name";
+    name.textContent = player.name;
+
+    bird.appendChild(name);
+    container.appendChild(bird);
+  }
 }
 
 function drawObstacles() {
@@ -331,7 +402,13 @@ function diveThenRecover() {
 
 function handleMove(direction) {
   if (gameWaitingToStart && !countdownRunning) {
-    startCountdown();
+    if (mySocketId === hostId) {
+      requestStartGame();
+    } else {
+      document.getElementById("message").textContent =
+        "Waiting for the game creator to start.";
+    }
+
     return;
   }
 
@@ -393,31 +470,45 @@ document.addEventListener("keydown", function(event) {
 });
 
 socket.on("roomUpdated", function(data) {
-
   currentGameCode = data.roomCode;
+  hostId = data.hostId;
+  players = data.players;
+
+  const isHost = mySocketId === hostId;
 
   document.getElementById("message").textContent =
-
-    "Game code: " + currentGameCode + ". Press any movement control to start.";
+    "Game code: " + currentGameCode + ". " +
+    (isHost
+      ? "You are the host. Press any movement control to start."
+      : "Waiting for the host to start.");
 
   const playerList = document.getElementById("playerList");
 
   playerList.innerHTML =
-
     "<h3>Players</h3>" +
-
-    data.players.map(function(player) {
-
-      return "<div>" + player.name + "</div>";
-
+    players.map(function(player) {
+      return "<div style='color:" + player.colour + "'>" + player.name + "</div>";
     }).join("");
 
   prepareGame();
+});
 
+socket.on("gameStarting", function(data) {
+  obstaclePlan = data.obstaclePlan;
+  createInitialObstacles();
+  startCountdown();
+});
+
+socket.on("playerMoved", function(data) {
+  for (let i = 0; i < players.length; i++) {
+    if (players[i].id === data.id) {
+      players[i].x = data.x;
+      players[i].y = data.y;
+      return;
+    }
+  }
 });
 
 socket.on("joinError", function(message) {
-
   document.getElementById("message").textContent = message;
-
 });

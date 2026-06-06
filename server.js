@@ -11,6 +11,15 @@ const PORT = process.env.PORT || 3000;
 
 const rooms = {};
 
+const playerColours = [
+  "gold",
+  "dodgerblue",
+  "tomato",
+  "limegreen",
+  "violet",
+  "orange"
+];
+
 app.use(express.static(__dirname));
 
 app.get("/", (req, res) => {
@@ -18,29 +27,65 @@ app.get("/", (req, res) => {
 });
 
 function getPlayersInRoom(roomCode) {
-  if (!rooms[roomCode]) {
-    return [];
+  if (!rooms[roomCode]) return [];
+  return Object.values(rooms[roomCode].players);
+}
+
+function generateObstaclePlan(count) {
+  const plan = [];
+
+  for (let i = 0; i < count; i++) {
+    let topPercent = randomNumber(10, 30) / 100;
+    let bottomPercent = randomNumber(10, 30) / 100;
+
+    while (topPercent + bottomPercent > 0.5) {
+      topPercent = randomNumber(10, 30) / 100;
+      bottomPercent = randomNumber(10, 30) / 100;
+    }
+
+    plan.push({
+      topPercent,
+      bottomPercent
+    });
   }
 
-  return Object.values(rooms[roomCode].players);
+  return plan;
+}
+
+function randomNumber(min, max) {
+  return Math.floor(min + Math.random() * (max - min + 1));
+}
+
+function addPlayerToRoom(socket, roomCode, playerName) {
+  const room = rooms[roomCode];
+  const playerCount = Object.keys(room.players).length;
+
+  room.players[socket.id] = {
+    id: socket.id,
+    name: playerName,
+    colour: playerColours[playerCount % playerColours.length],
+    x: 70 + playerCount * 55,
+    y: 220,
+    alive: true
+  };
+
+  socket.join(roomCode);
 }
 
 io.on("connection", (socket) => {
   socket.on("createGame", ({ playerName, roomCode }) => {
     rooms[roomCode] = {
       hostId: socket.id,
-      players: {}
+      players: {},
+      started: false,
+      obstaclePlan: []
     };
 
-    rooms[roomCode].players[socket.id] = {
-      id: socket.id,
-      name: playerName
-    };
-
-    socket.join(roomCode);
+    addPlayerToRoom(socket, roomCode, playerName);
 
     io.to(roomCode).emit("roomUpdated", {
       roomCode,
+      hostId: rooms[roomCode].hostId,
       players: getPlayersInRoom(roomCode)
     });
   });
@@ -51,30 +96,67 @@ io.on("connection", (socket) => {
       return;
     }
 
-    rooms[roomCode].players[socket.id] = {
-      id: socket.id,
-      name: playerName
-    };
+    if (rooms[roomCode].started) {
+      socket.emit("joinError", "This game has already started.");
+      return;
+    }
 
-    socket.join(roomCode);
+    addPlayerToRoom(socket, roomCode, playerName);
 
     io.to(roomCode).emit("roomUpdated", {
       roomCode,
+      hostId: rooms[roomCode].hostId,
       players: getPlayersInRoom(roomCode)
+    });
+  });
+
+  socket.on("requestStartGame", ({ roomCode }) => {
+    const room = rooms[roomCode];
+
+    if (!room) return;
+
+    if (socket.id !== room.hostId) {
+      socket.emit("joinError", "Only the game creator can start the game.");
+      return;
+    }
+
+    room.started = true;
+    room.obstaclePlan = generateObstaclePlan(100);
+
+    io.to(roomCode).emit("gameStarting", {
+      obstaclePlan: room.obstaclePlan
+    });
+  });
+
+  socket.on("playerState", ({ roomCode, x, y }) => {
+    const room = rooms[roomCode];
+
+    if (!room || !room.players[socket.id]) return;
+
+    room.players[socket.id].x = x;
+    room.players[socket.id].y = y;
+
+    socket.to(roomCode).emit("playerMoved", {
+      id: socket.id,
+      x,
+      y
     });
   });
 
   socket.on("disconnect", () => {
     for (const roomCode in rooms) {
-      if (rooms[roomCode].players[socket.id]) {
-        delete rooms[roomCode].players[socket.id];
+      const room = rooms[roomCode];
+
+      if (room.players[socket.id]) {
+        delete room.players[socket.id];
 
         io.to(roomCode).emit("roomUpdated", {
           roomCode,
+          hostId: room.hostId,
           players: getPlayersInRoom(roomCode)
         });
 
-        if (Object.keys(rooms[roomCode].players).length === 0) {
+        if (Object.keys(room.players).length === 0) {
           delete rooms[roomCode];
         }
       }

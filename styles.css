@@ -139,3 +139,35 @@ button {
 .bottom-obstacle {
   bottom: 0;
 }
+
+.player-bird {
+
+  width: 40px;
+
+  height: 40px;
+
+  border-radius: 50%;
+
+  position: absolute;
+
+  border: 3px solid black;
+
+  box-sizing: border-box;
+
+}
+
+.player-name {
+
+  position: absolute;
+
+  top: -22px;
+
+  left: -10px;
+
+  font-size: 12px;
+
+  font-weight: bold;
+
+  white-space: nowrap;
+
+}
