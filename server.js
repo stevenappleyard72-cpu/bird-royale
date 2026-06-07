@@ -22,7 +22,9 @@ const sideFlapStrength = -6.4;
 const horizontalPush = 4.8;
 const horizontalDrag = 0.92;
 
-const diveAmount = 45;
+const diveGravityBoost = 1.8;
+const maxExtraGravity = 4;
+const diveGravityDecay = 0.85;
 
 const obstacleWidth = 40;
 const obstacleSpacing = 170;
@@ -125,6 +127,7 @@ function addPlayerToRoom(socket, roomCode, playerName) {
     y: 220,
     velocityX: 0,
     velocityY: 0,
+    extraGravity: 0,
     alive: true,
     score: 0
   };
@@ -140,6 +143,7 @@ function resetPlayersForRound(room) {
     players[i].y = 220;
     players[i].velocityX = 0;
     players[i].velocityY = 0;
+    players[i].extraGravity = 0;
     players[i].alive = true;
   }
 }
@@ -182,8 +186,10 @@ function applyInput(player, direction, room) {
   }
 
   if (direction === "down") {
-    player.y += diveAmount * speedMultiplier;
-    player.velocityY = 2;
+    player.extraGravity += diveGravityBoost;
+    if (player.extraGravity > maxExtraGravity) {
+      player.extraGravity = maxExtraGravity;
+    }
   }
 }
 
@@ -194,8 +200,13 @@ function updatePlayerPhysics(room) {
   for (const player of players) {
     if (!player.alive) continue;
 
-    player.velocityY += gravity * speedMultiplier;
+    player.velocityY += (gravity + player.extraGravity) * speedMultiplier;
     player.y += player.velocityY * speedMultiplier;
+    player.extraGravity *= diveGravityDecay;
+
+    if (player.extraGravity < 0.01) {
+      player.extraGravity = 0;
+    }
 
     player.x += player.velocityX * speedMultiplier;
     player.velocityX *= horizontalDrag;
@@ -447,19 +458,13 @@ io.on("connection", (socket) => {
       return;
     }
 
-if (room.started) return;
-
-const playerCount = Object.keys(room.players).length;
-
-if (playerCount < 2) {
-
-  socket.emit("joinError", "You need at least 2 players to start the round.");
-
-  return;
-
-}
-
-resetPlayersForRound(room);
+    if (room.started) return;
+    const playerCount = Object.keys(room.players).length;
+    if (playerCount < 2) {
+      socket.emit("joinError", "You need at least 2 players to start the round.");
+      return;
+    }
+    resetPlayersForRound(room);
 
     room.obstacles = createInitialObstacles();
     room.obstaclesPassed = 0;
