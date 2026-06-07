@@ -446,6 +446,85 @@ function handleMove(direction) {
   });
 }
 
+// Joystick handling
+let joystickActive = false;
+
+function initJoystick() {
+  const base = document.getElementById("joystick-base");
+  const knob = document.getElementById("joystick-knob");
+  const baseSize = 140;
+  const knobSize = 60;
+  const deadzone = 30;  // Minimum distance to register input
+  const maxDistance = (baseSize - knobSize) / 2;
+
+  function getDirection(x, y) {
+    const distance = Math.sqrt(x * x + y * y);
+    
+    if (distance < deadzone) return null;  // Deadzone
+
+    // Determine primary direction based on angle
+    const angle = Math.atan2(y, x);
+    const degrees = (angle * 180) / Math.PI + 180;
+
+    if (degrees < 45 || degrees >= 315) return "right";
+    if (degrees >= 45 && degrees < 135) return "down";
+    if (degrees >= 135 && degrees < 225) return "left";
+    if (degrees >= 225 && degrees < 315) return "up";
+  }
+
+  function updateKnob(clientX, clientY) {
+    const rect = base.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    let x = clientX - centerX;
+    let y = clientY - centerY;
+
+    const distance = Math.sqrt(x * x + y * y);
+
+    if (distance > maxDistance) {
+      const angle = Math.atan2(y, x);
+      x = Math.cos(angle) * maxDistance;
+      y = Math.sin(angle) * maxDistance;
+    }
+
+    knob.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+
+    const direction = getDirection(x, y);
+    if (direction) {
+      handleMove(direction);
+    }
+  }
+
+  function onStart(e) {
+    joystickActive = true;
+    const touch = e.touches ? e.touches[0] : e;
+    updateKnob(touch.clientX, touch.clientY);
+  }
+
+  function onMove(e) {
+    if (!joystickActive) return;
+    e.preventDefault();
+    const touch = e.touches ? e.touches[0] : e;
+    updateKnob(touch.clientX, touch.clientY);
+  }
+
+  function onEnd(e) {
+    joystickActive = false;
+    knob.style.transform = "translate(-50%, -50%)";
+  }
+
+  // Touch events (mobile)
+  base.addEventListener("touchstart", onStart, { passive: false });
+  document.addEventListener("touchmove", onMove, { passive: false });
+  document.addEventListener("touchend", onEnd);
+
+  // Mouse events (desktop)
+  base.addEventListener("mousedown", onStart);
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onEnd);
+}
+
 document.addEventListener("keydown", function(event) {
   const activeElement = document.activeElement;
 
@@ -533,6 +612,8 @@ socket.on("gameStarted", function(data) {
 
   drawGame();
   updatePlayerList();
+  
+  initJoystick();
 });
 
 socket.on("gameState", function(data) {
