@@ -99,6 +99,43 @@ button {
   font-size: 18px;
 }
 
+.obstacle {
+  position: absolute;
+  width: 40px;
+  background: green;
+}
+
+.top-obstacle {
+  top: 0;
+}
+
+.bottom-obstacle {
+  bottom: 0;
+}
+
+.player-bird {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  position: absolute;
+  border: 3px solid black;
+  box-sizing: border-box;
+}
+
+.player-name {
+  position: absolute;
+  top: -22px;
+  left: -10px;
+  font-size: 12px;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.explosion {
+  pointer-events: none;
+  z-index: 100;
+}
+
 @media (max-width: 500px) {
   body {
     overflow-x: hidden;
@@ -124,50 +161,4 @@ button {
     height: 58px;
     font-size: 32px;
   }
-}
-
-.obstacle {
-  position: absolute;
-  width: 40px;
-  background: green;
-}
-
-.top-obstacle {
-  top: 0;
-}
-
-.bottom-obstacle {
-  bottom: 0;
-}
-
-.player-bird {
-
-  width: 40px;
-
-  height: 40px;
-
-  border-radius: 50%;
-
-  position: absolute;
-
-  border: 3px solid black;
-
-  box-sizing: border-box;
-
-}
-
-.player-name {
-
-  position: absolute;
-
-  top: -22px;
-
-  left: -10px;
-
-  font-size: 12px;
-
-  font-weight: bold;
-
-  white-space: nowrap;
-
 }

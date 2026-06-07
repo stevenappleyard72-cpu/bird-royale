@@ -7,6 +7,7 @@ let mySocketId = "";
 let players = [];
 let obstacles = [];
 let obstaclesPassed = 0;
+let previousPlayersState = {};  // Track previous alive status to detect deaths
 
 let gameSpeed = 10;
 let gameSpeedMultiplier = 1;
@@ -16,6 +17,9 @@ let gameWaitingToStart = false;
 let countdownRunning = false;
 let gameRunning = false;
 let matchEnded = false;
+
+let explosions = {};  // Track explosions: { playerId: { x, y, color, startTime } }
+const explosionDuration = 600;  // milliseconds
 
 const serverWidth = 420;
 const serverHeight = 500;
@@ -86,6 +90,51 @@ function scaleSize(size) {
   return size * (getGameWidth() / serverWidth);
 }
 
+function createExplosion(playerId, x, y, color) {
+  explosions[playerId] = {
+    x,
+    y,
+    color,
+    startTime: Date.now()
+  };
+}
+
+function drawExplosions() {
+  const container = document.getElementById("playersContainer");
+  const now = Date.now();
+
+  for (const playerId in explosions) {
+    const explosion = explosions[playerId];
+    const elapsed = now - explosion.startTime;
+    const progress = Math.min(elapsed / explosionDuration, 1);
+
+    if (progress >= 1) {
+      delete explosions[playerId];
+      continue;
+    }
+
+    // Create expanding circle effect
+    const explosionDiv = document.createElement("div");
+    explosionDiv.className = "explosion";
+    
+    const maxRadius = scaleSize(birdSize * 1.5);
+    const currentRadius = maxRadius * progress;
+    const opacity = 1 - progress;
+
+    explosionDiv.style.left = scaleX(explosion.x + birdSize / 2) - currentRadius + "px";
+    explosionDiv.style.top = scaleY(explosion.y + birdSize / 2) - currentRadius + "px";
+    explosionDiv.style.width = currentRadius * 2 + "px";
+    explosionDiv.style.height = currentRadius * 2 + "px";
+    explosionDiv.style.background = explosion.color;
+    explosionDiv.style.borderRadius = "50%";
+    explosionDiv.style.position = "absolute";
+    explosionDiv.style.opacity = opacity;
+    explosionDiv.style.boxShadow = `0 0 ${currentRadius}px ${explosion.color}`;
+
+    container.appendChild(explosionDiv);
+  }
+}
+
 function createGame() {
   const playerName = getPlayerName();
   currentGameCode = generateGameCode();
@@ -140,6 +189,16 @@ function drawPlayers() {
   for (let i = 0; i < players.length; i++) {
     const player = players[i];
 
+    // Check if bird just died
+    if (player.alive === false && previousPlayersState[player.id] !== false) {
+      createExplosion(player.id, player.x, player.y, player.colour);
+    }
+
+    // Only draw alive birds
+    if (!player.alive) {
+      continue;
+    }
+
     const bird = document.createElement("div");
     bird.className = "player-bird";
     bird.style.left = scaleX(player.x) + "px";
@@ -147,7 +206,7 @@ function drawPlayers() {
     bird.style.width = scaleSize(birdSize) + "px";
     bird.style.height = scaleSize(birdSize) + "px";
     bird.style.background = player.colour;
-    bird.style.opacity = player.alive ? "1" : "0.25";
+    bird.style.opacity = "1";
 
     const name = document.createElement("div");
     name.className = "player-name";
@@ -155,6 +214,15 @@ function drawPlayers() {
 
     bird.appendChild(name);
     container.appendChild(bird);
+  }
+
+  // Draw explosions
+  drawExplosions();
+
+  // Update previous state
+  previousPlayersState = {};
+  for (const player of players) {
+    previousPlayersState[player.id] = player.alive;
   }
 }
 
@@ -313,6 +381,8 @@ socket.on("roomUpdated", function(data) {
   countdownRunning = false;
   gameRunning = false;
   matchEnded = false;
+  explosions = {};
+  previousPlayersState = {};
 
   drawGame();
   updatePlayerList();
@@ -323,6 +393,8 @@ socket.on("gameStarting", function(data) {
   updateLocalState(data);
 
   matchEnded = false;
+  explosions = {};  // Clear explosions when new round starts
+  previousPlayersState = {};
 
   drawGame();
   updatePlayerList();
