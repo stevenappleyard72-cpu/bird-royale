@@ -125,16 +125,10 @@ function applyInput(player, direction, room) {
     player.velocityX += horizontalPush;
   }
 
-  if (direction === "down") {
-    player.y += diveAmount * speedMultiplier;
-    player.velocityY = 2;
-
-    setTimeout(() => {
-      if (player.alive) {
-        player.velocityY = flapStrength;
-      }
-    }, diveRecoveryDelay);
-  }
+if (direction === "down") {
+  player.y += diveAmount * speedMultiplier;
+  player.velocityY = 2;
+}
 }
 
 function updatePlayerPhysics(room) {
@@ -292,15 +286,21 @@ io.on("connection", (socket) => {
       return;
     }
 
-    room.started = true;
-    room.obstaclePlan = generateObstaclePlan(100);
+room.obstaclePlan = generateObstaclePlan(100);
 
-    io.to(roomCode).emit("gameStarting", {
-      obstaclePlan: room.obstaclePlan,
-      gameSpeed: room.gameSpeed
-    });
+io.to(roomCode).emit("gameStarting", {
+  obstaclePlan: room.obstaclePlan,
+  gameSpeed: room.gameSpeed
+});
 
-    startGameLoop(roomCode);
+setTimeout(() => {
+  if (!rooms[roomCode]) {
+    return;
+  }
+
+  rooms[roomCode].started = true;
+  startGameLoop(roomCode);
+}, 4000);
   });
 
   socket.on("playerInput", ({ roomCode, direction }) => {
