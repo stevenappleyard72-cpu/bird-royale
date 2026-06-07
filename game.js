@@ -6,11 +6,6 @@ let mySocketId = "";
 
 let players = [];
 
-let birdX = 80;
-let birdY = 220;
-let velocityY = 0;
-let velocityX = 0;
-
 const birdSize = 40;
 
 const obstacleWidth = 40;
@@ -22,15 +17,6 @@ let obstacles = [];
 let obstaclesPassed = 0;
 let obstaclePlan = [];
 let nextObstaclePlanIndex = 0;
-
-const gravity = 0.45;
-const flapStrength = -7.8;
-const sideFlapStrength = -6.4;
-const horizontalPush = 4.8;
-const horizontalDrag = 0.92;
-
-const diveAmount = 45;
-const diveRecoveryDelay = 140;
 
 let gameWaitingToStart = false;
 let countdownRunning = false;
@@ -94,21 +80,6 @@ function joinGame() {
 function prepareGame() {
   document.getElementById("gameArea").style.display = "block";
   document.getElementById("controls").style.display = "block";
-
-  const myPlayer = players.find(function(player) {
-    return player.id === mySocketId;
-  });
-
-  if (myPlayer) {
-    birdX = myPlayer.x;
-    birdY = myPlayer.y;
-  } else {
-    birdX = 80;
-    birdY = 220;
-  }
-
-  velocityX = 0;
-  velocityY = 0;
 
   obstacleSpeed = 2;
   obstaclesPassed = 0;
@@ -218,48 +189,25 @@ function gameLoop() {
     return;
   }
 
-  velocityY += gravity;
-  birdY += velocityY;
-
-  birdX += velocityX;
-  velocityX *= horizontalDrag;
-
   moveObstacles();
-
-  keepBirdInsideArena();
-
-  updateMyPlayerPosition();
-  sendMyPlayerState();
-
   drawPlayers();
   drawObstacles();
 
-  if (birdY <= 0 || birdY >= getGameHeight() - birdSize || checkCollision()) {
-    gameRunning = false;
-    document.getElementById("message").textContent =
-      "Game over! Obstacles passed: " + obstaclesPassed;
-    return;
-  }
+if (myPlayerHasHitObstacleOrBoundary()) {
+  gameRunning = false;
+  socket.emit("playerDied", {
+  roomCode: currentGameCode
+  });
+
+  document.getElementById("message").textContent =
+
+    "You crashed! Waiting for result...";
+
+  return;
+
+}
 
   requestAnimationFrame(gameLoop);
-}
-
-function updateMyPlayerPosition() {
-  for (let i = 0; i < players.length; i++) {
-    if (players[i].id === mySocketId) {
-      players[i].x = birdX;
-      players[i].y = birdY;
-      return;
-    }
-  }
-}
-
-function sendMyPlayerState() {
-  socket.emit("playerState", {
-    roomCode: currentGameCode,
-    x: birdX,
-    y: birdY
-  });
 }
 
 function moveObstacles() {
@@ -273,8 +221,6 @@ function moveObstacles() {
     obstacles.shift();
 
     obstaclesPassed++;
-
-    obstacleSpeed = 2;
 
     const lastObstacle = obstacles[obstacles.length - 1];
 
@@ -293,8 +239,8 @@ function drawPlayers() {
 
     const bird = document.createElement("div");
     bird.className = "player-bird";
-    bird.style.left = player.x + "px";
-    bird.style.top = player.y + "px";
+    bird.style.left = scaleServerX(player.x) + "px";
+    bird.style.top = scaleServerY(player.y) + "px";
     bird.style.background = player.colour;
 
     const name = document.createElement("div");
@@ -304,6 +250,22 @@ function drawPlayers() {
     bird.appendChild(name);
     container.appendChild(bird);
   }
+}
+
+function scaleServerX(serverX) {
+  return serverX * (getGameWidth() / 420);
+}
+
+function scaleServerY(serverY) {
+  return serverY * (getGameHeight() / 500);
+}
+
+function unscaleClientX(clientX) {
+  return clientX / (getGameWidth() / 420);
+}
+
+function unscaleClientY(clientY) {
+  return clientY / (getGameHeight() / 500);
 }
 
 function drawObstacles() {
@@ -318,13 +280,36 @@ function drawObstacles() {
   }
 }
 
-function checkCollision() {
+function getMyPlayer() {
+  return players.find(function(player) {
+    return player.id === mySocketId;
+  });
+}
+
+function myPlayerHasHitObstacleOrBoundary() {
+  const myPlayer = getMyPlayer();
+
+  if (!myPlayer) {
+    return false;
+  }
+
+  const clientX = scaleServerX(myPlayer.x);
+  const clientY = scaleServerY(myPlayer.y);
+
+  if (clientY <= 0 || clientY >= getGameHeight() - birdSize) {
+    return true;
+  }
+
+  return checkObstacleCollision(clientX, clientY);
+}
+
+function checkObstacleCollision(clientX, clientY) {
   const gameHeight = getGameHeight();
 
-  const birdLeft = birdX;
-  const birdRight = birdX + birdSize;
-  const birdTop = birdY;
-  const birdBottom = birdY + birdSize;
+  const birdLeft = clientX;
+  const birdRight = clientX + birdSize;
+  const birdTop = clientY;
+  const birdBottom = clientY + birdSize;
 
   for (let i = 0; i < obstacles.length; i++) {
     const obstacle = obstacles[i];
@@ -352,54 +337,6 @@ function checkCollision() {
   return false;
 }
 
-function keepBirdInsideArena() {
-  const gameWidth = getGameWidth();
-  const gameHeight = getGameHeight();
-
-  if (birdX < 0) {
-    birdX = 0;
-    velocityX = 0;
-  }
-
-  if (birdX > gameWidth - birdSize) {
-    birdX = gameWidth - birdSize;
-    velocityX = 0;
-  }
-
-  if (birdY < 0) {
-    birdY = 0;
-  }
-
-  if (birdY > gameHeight - birdSize) {
-    birdY = gameHeight - birdSize;
-  }
-}
-
-function flapUp() {
-  velocityY = flapStrength;
-}
-
-function flapLeft() {
-  velocityY = sideFlapStrength;
-  velocityX -= horizontalPush;
-}
-
-function flapRight() {
-  velocityY = sideFlapStrength;
-  velocityX += horizontalPush;
-}
-
-function diveThenRecover() {
-  birdY += diveAmount;
-  velocityY = 2;
-
-  setTimeout(function() {
-    if (gameRunning) {
-      velocityY = flapStrength;
-    }
-  }, diveRecoveryDelay);
-}
-
 function handleMove(direction) {
   if (gameWaitingToStart && !countdownRunning) {
     if (mySocketId === hostId) {
@@ -416,21 +353,10 @@ function handleMove(direction) {
     return;
   }
 
-  if (direction === "up") {
-    flapUp();
-  }
-
-  if (direction === "left") {
-    flapLeft();
-  }
-
-  if (direction === "right") {
-    flapRight();
-  }
-
-  if (direction === "down") {
-    diveThenRecover();
-  }
+  socket.emit("playerInput", {
+    roomCode: currentGameCode,
+    direction
+  });
 }
 
 document.addEventListener("keydown", function(event) {
@@ -499,16 +425,27 @@ socket.on("gameStarting", function(data) {
   startCountdown();
 });
 
-socket.on("playerMoved", function(data) {
-  for (let i = 0; i < players.length; i++) {
-    if (players[i].id === data.id) {
-      players[i].x = data.x;
-      players[i].y = data.y;
-      return;
-    }
-  }
+socket.on("playersUpdated", function(data) {
+  players = data.players;
+  drawPlayers();
 });
 
 socket.on("joinError", function(message) {
   document.getElementById("message").textContent = message;
+});
+
+socket.on("gameEnded", function(data) {
+  gameRunning = false;
+  countdownRunning = false;
+  gameWaitingToStart = false;
+
+  if (data.winner) {
+    document.getElementById("message").textContent =
+      data.winner.name + " wins!";
+  } else {
+    document.getElementById("message").textContent =
+      "Everyone crashed!";
+  }
+
+  drawPlayers();
 });

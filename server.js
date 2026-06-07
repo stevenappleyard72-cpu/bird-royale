@@ -278,6 +278,29 @@ io.on("connection", (socket) => {
     });
   });
 
+socket.on("playerDied", ({ roomCode }) => {
+  const room = rooms[roomCode];
+  if (!room || !room.players[socket.id]) return;
+  room.players[socket.id].alive = false;
+  const alivePlayers = Object.values(room.players).filter(player => player.alive);
+  
+  io.to(roomCode).emit("playersUpdated", {
+    players: getPlayersInRoom(roomCode)
+  });
+
+  if (alivePlayers.length <= 1) {
+    room.started = false;
+    if (room.gameLoop) {
+      clearInterval(room.gameLoop);
+      room.gameLoop = null;
+    }
+
+    io.to(roomCode).emit("gameEnded", {
+      winner: alivePlayers[0] || null
+    });
+  }
+});
+
   socket.on("requestStartGame", ({ roomCode }) => {
     const room = rooms[roomCode];
 
