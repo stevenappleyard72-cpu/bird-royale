@@ -23,7 +23,11 @@ const horizontalPush = 4.8;
 const horizontalDrag = 0.92;
 
 const diveAmount = 45;
-const diveRecoveryDelay = 140;
+
+const obstacleWidth = 40;
+const obstacleSpacing = 170;
+const obstacleSpeed = 2;
+const targetObstacleCount = 4;
 
 const victimKnockback = 45;
 const attackerRecoil = 15;
@@ -47,27 +51,60 @@ function randomNumber(min, max) {
   return Math.floor(min + Math.random() * (max - min + 1));
 }
 
-function generateObstaclePlan(count) {
-  const plan = [];
-
-  for (let i = 0; i < count; i++) {
-    let topPercent = randomNumber(10, 30) / 100;
-    let bottomPercent = randomNumber(10, 30) / 100;
-
-    while (topPercent + bottomPercent > 0.5) {
-      topPercent = randomNumber(10, 30) / 100;
-      bottomPercent = randomNumber(10, 30) / 100;
-    }
-
-    plan.push({ topPercent, bottomPercent });
-  }
-
-  return plan;
-}
-
 function getPlayersInRoom(roomCode) {
   if (!rooms[roomCode]) return [];
   return Object.values(rooms[roomCode].players);
+}
+
+function createObstacle(x) {
+  let topHeight = randomNumber(50, 150);
+  let bottomHeight = randomNumber(50, 150);
+
+  while (topHeight + bottomHeight > gameHeight / 2) {
+    topHeight = randomNumber(50, 150);
+    bottomHeight = randomNumber(50, 150);
+  }
+
+  return {
+    x,
+    width: obstacleWidth,
+    topHeight,
+    bottomHeight
+  };
+}
+
+function createInitialObstacles() {
+  const obstacles = [];
+
+  for (let i = 0; i < targetObstacleCount; i++) {
+    obstacles.push(
+      createObstacle((gameWidth - obstacleWidth) + i * obstacleSpacing)
+    );
+  }
+
+  return obstacles;
+}
+
+function getGameState(roomCode) {
+  const room = rooms[roomCode];
+
+  return {
+    roomCode,
+    hostId: room.hostId,
+    started: room.started,
+    gameSpeed: room.gameSpeed,
+    players: getPlayersInRoom(roomCode),
+    obstacles: room.obstacles,
+    obstaclesPassed: room.obstaclesPassed
+  };
+}
+
+function broadcastGameState(roomCode) {
+  const room = rooms[roomCode];
+
+  if (!room) return;
+
+  io.to(roomCode).emit("gameState", getGameState(roomCode));
 }
 
 function addPlayerToRoom(socket, roomCode, playerName) {
@@ -86,6 +123,18 @@ function addPlayerToRoom(socket, roomCode, playerName) {
   };
 
   socket.join(roomCode);
+}
+
+function resetPlayers(room) {
+  const players = Object.values(room.players);
+
+  for (let i = 0; i < players.length; i++) {
+    players[i].x = 70 + i * 55;
+    players[i].y = 220;
+    players[i].velocityX = 0;
+    players[i].velocityY = 0;
+    players[i].alive = true;
+  }
 }
 
 function keepPlayerInsideArena(player) {
@@ -125,10 +174,10 @@ function applyInput(player, direction, room) {
     player.velocityX += horizontalPush;
   }
 
-if (direction === "down") {
-  player.y += diveAmount * speedMultiplier;
-  player.velocityY = 2;
-}
+  if (direction === "down") {
+    player.y += diveAmount * speedMultiplier;
+    player.velocityY = 2;
+  }
 }
 
 function updatePlayerPhysics(room) {
@@ -145,6 +194,70 @@ function updatePlayerPhysics(room) {
     player.velocityX *= horizontalDrag;
 
     keepPlayerInsideArena(player);
+  }
+}
+
+function updateObstacles(room) {
+  const speedMultiplier = getSpeedMultiplier(room);
+
+  for (const obstacle of room.obstacles) {
+    obstacle.x -= obstacleSpeed * speedMultiplier;
+  }
+
+  while (room.obstacles.length > 0 && room.obstacles[0].x < -obstacleWidth) {
+    room.obstacles.shift();
+    room.obstaclesPassed++;
+
+    const lastObstacle = room.obstacles[room.obstacles.length - 1];
+    room.obstacles.push(createObstacle(lastObstacle.x + obstacleSpacing));
+  }
+}
+
+function playerHitsBoundary(player) {
+  return player.y <= 0 || player.y >= gameHeight - birdSize;
+}
+
+function playerHitsObstacle(player, obstacle) {
+  const birdLeft = player.x;
+  const birdRight = player.x + birdSize;
+  const birdTop = player.y;
+  const birdBottom = player.y + birdSize;
+
+  const obstacleLeft = obstacle.x;
+  const obstacleRight = obstacle.x + obstacle.width;
+
+  const overlapsHorizontally =
+    birdRight > obstacleLeft &&
+    birdLeft < obstacleRight;
+
+  const hitsTop =
+    overlapsHorizontally &&
+    birdTop < obstacle.topHeight;
+
+  const hitsBottom =
+    overlapsHorizontally &&
+    birdBottom > gameHeight - obstacle.bottomHeight;
+
+  return hitsTop || hitsBottom;
+}
+
+function applyObstacleDeaths(room) {
+  const players = Object.values(room.players);
+
+  for (const player of players) {
+    if (!player.alive) continue;
+
+    if (playerHitsBoundary(player)) {
+      player.alive = false;
+      continue;
+    }
+
+    for (const obstacle of room.obstacles) {
+      if (playerHitsObstacle(player, obstacle)) {
+        player.alive = false;
+        break;
+      }
+    }
   }
 }
 
@@ -203,14 +316,32 @@ function applyPlayerCollisions(room) {
   }
 }
 
-function broadcastPlayerStates(roomCode) {
+function getAlivePlayers(room) {
+  return Object.values(room.players).filter(player => player.alive);
+}
+
+function checkForGameEnd(roomCode) {
   const room = rooms[roomCode];
 
-  if (!room) return;
+  if (!room || !room.started) return;
 
-  io.to(roomCode).emit("playersUpdated", {
-    players: getPlayersInRoom(roomCode)
-  });
+  const alivePlayers = getAlivePlayers(room);
+
+  if (alivePlayers.length <= 1) {
+    room.started = false;
+
+    if (room.gameLoop) {
+      clearInterval(room.gameLoop);
+      room.gameLoop = null;
+    }
+
+    broadcastGameState(roomCode);
+
+    io.to(roomCode).emit("gameEnded", {
+      winner: alivePlayers[0] || null,
+      obstaclesPassed: room.obstaclesPassed
+    });
+  }
 }
 
 function startGameLoop(roomCode) {
@@ -223,14 +354,19 @@ function startGameLoop(roomCode) {
   }
 
   room.gameLoop = setInterval(() => {
-    if (!rooms[roomCode] || !rooms[roomCode].started) {
+    const activeRoom = rooms[roomCode];
+
+    if (!activeRoom || !activeRoom.started) {
       clearInterval(room.gameLoop);
       return;
     }
 
-    updatePlayerPhysics(room);
-    applyPlayerCollisions(room);
-    broadcastPlayerStates(roomCode);
+    updatePlayerPhysics(activeRoom);
+    applyPlayerCollisions(activeRoom);
+    updateObstacles(activeRoom);
+    applyObstacleDeaths(activeRoom);
+    broadcastGameState(roomCode);
+    checkForGameEnd(roomCode);
   }, 1000 / 60);
 }
 
@@ -241,39 +377,33 @@ io.on("connection", (socket) => {
       players: {},
       started: false,
       obstaclePlan: [],
+      obstacles: [],
+      obstaclesPassed: 0,
       gameLoop: null,
       gameSpeed: clampGameSpeed(gameSpeed)
     };
 
     addPlayerToRoom(socket, roomCode, playerName);
 
-    io.to(roomCode).emit("roomUpdated", {
-      roomCode,
-      hostId: rooms[roomCode].hostId,
-      players: getPlayersInRoom(roomCode),
-      gameSpeed: rooms[roomCode].gameSpeed
-    });
+    io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
   });
 
   socket.on("joinGame", ({ playerName, roomCode }) => {
-    if (!rooms[roomCode]) {
+    const room = rooms[roomCode];
+
+    if (!room) {
       socket.emit("joinError", "Game code not found.");
       return;
     }
 
-    if (rooms[roomCode].started) {
+    if (room.started) {
       socket.emit("joinError", "This game has already started.");
       return;
     }
 
     addPlayerToRoom(socket, roomCode, playerName);
 
-    io.to(roomCode).emit("roomUpdated", {
-      roomCode,
-      hostId: rooms[roomCode].hostId,
-      players: getPlayersInRoom(roomCode),
-      gameSpeed: rooms[roomCode].gameSpeed
-    });
+    io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
   });
 
   socket.on("requestStartGame", ({ roomCode }) => {
@@ -286,21 +416,19 @@ io.on("connection", (socket) => {
       return;
     }
 
-room.obstaclePlan = generateObstaclePlan(100);
+    resetPlayers(room);
+    room.obstacles = createInitialObstacles();
+    room.obstaclesPassed = 0;
 
-io.to(roomCode).emit("gameStarting", {
-  obstaclePlan: room.obstaclePlan,
-  gameSpeed: room.gameSpeed
-});
+    io.to(roomCode).emit("gameStarting", getGameState(roomCode));
 
-setTimeout(() => {
-  if (!rooms[roomCode]) {
-    return;
-  }
+    setTimeout(() => {
+      if (!rooms[roomCode]) return;
 
-  rooms[roomCode].started = true;
-  startGameLoop(roomCode);
-}, 4000);
+      rooms[roomCode].started = true;
+      io.to(roomCode).emit("gameStarted", getGameState(roomCode));
+      startGameLoop(roomCode);
+    }, 4000);
   });
 
   socket.on("playerInput", ({ roomCode, direction }) => {
@@ -322,20 +450,15 @@ setTimeout(() => {
       if (room.players[socket.id]) {
         delete room.players[socket.id];
 
-        io.to(roomCode).emit("roomUpdated", {
-          roomCode,
-          hostId: room.hostId,
-          players: getPlayersInRoom(roomCode),
-          gameSpeed: room.gameSpeed
-        });
-
         if (Object.keys(room.players).length === 0) {
-          if (room.gameLoop) {
-            clearInterval(room.gameLoop);
-          }
-
+          if (room.gameLoop) clearInterval(room.gameLoop);
           delete rooms[roomCode];
+          return;
         }
+
+        io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
+        broadcastGameState(roomCode);
+        checkForGameEnd(roomCode);
       }
     }
   });

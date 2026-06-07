@@ -5,18 +5,8 @@ let hostId = "";
 let mySocketId = "";
 
 let players = [];
-
-const birdSize = 40;
-
-const obstacleWidth = 40;
-const obstacleSpacing = 170;
-const targetObstacleCount = 4;
-
-let obstacleSpeed = 2;
 let obstacles = [];
 let obstaclesPassed = 0;
-let obstaclePlan = [];
-let nextObstaclePlanIndex = 0;
 
 let gameSpeed = 10;
 let gameSpeedMultiplier = 1;
@@ -24,6 +14,10 @@ let gameSpeedMultiplier = 1;
 let gameWaitingToStart = false;
 let countdownRunning = false;
 let gameRunning = false;
+
+const serverWidth = 420;
+const serverHeight = 500;
+const birdSize = 40;
 
 socket.on("connect", function() {
   mySocketId = socket.id;
@@ -45,14 +39,6 @@ function getPlayerName() {
   return name === "" ? "Player" : name;
 }
 
-function getGameWidth() {
-  return document.getElementById("gameArea").clientWidth;
-}
-
-function getGameHeight() {
-  return document.getElementById("gameArea").clientHeight;
-}
-
 function getSpeedFromInput() {
   const input = document.getElementById("gameSpeedInput");
   const speed = Number(input.value) || 10;
@@ -66,6 +52,26 @@ function getSpeedFromInput() {
 function setGameSpeed(speed) {
   gameSpeed = speed || 10;
   gameSpeedMultiplier = gameSpeed / 10;
+}
+
+function getGameWidth() {
+  return document.getElementById("gameArea").clientWidth;
+}
+
+function getGameHeight() {
+  return document.getElementById("gameArea").clientHeight;
+}
+
+function scaleX(serverX) {
+  return serverX * (getGameWidth() / serverWidth);
+}
+
+function scaleY(serverY) {
+  return serverY * (getGameHeight() / serverHeight);
+}
+
+function scaleSize(size) {
+  return size * (getGameWidth() / serverWidth);
 }
 
 function createGame() {
@@ -98,73 +104,97 @@ function joinGame() {
   });
 }
 
-function prepareGame() {
+function showGameArea() {
   document.getElementById("gameArea").style.display = "block";
   document.getElementById("controls").style.display = "block";
-
-  obstacleSpeed = 2;
-  obstaclesPassed = 0;
-  obstacles = [];
-  obstaclePlan = [];
-  nextObstaclePlanIndex = 0;
-
-  clearObstacleElements();
-
-  gameWaitingToStart = true;
-  countdownRunning = false;
-  gameRunning = false;
-
-  drawPlayers();
 }
 
-function clearObstacleElements() {
+function updateLocalState(data) {
+  currentGameCode = data.roomCode || currentGameCode;
+  hostId = data.hostId || hostId;
+  players = data.players || [];
+  obstacles = data.obstacles || [];
+  obstaclesPassed = data.obstaclesPassed || 0;
+  setGameSpeed(data.gameSpeed || gameSpeed);
+}
+
+function drawPlayers() {
+  const container = document.getElementById("playersContainer");
+  container.innerHTML = "";
+
+  for (let i = 0; i < players.length; i++) {
+    const player = players[i];
+
+    const bird = document.createElement("div");
+    bird.className = "player-bird";
+    bird.style.left = scaleX(player.x) + "px";
+    bird.style.top = scaleY(player.y) + "px";
+    bird.style.width = scaleSize(birdSize) + "px";
+    bird.style.height = scaleSize(birdSize) + "px";
+    bird.style.background = player.colour;
+    bird.style.opacity = player.alive ? "1" : "0.25";
+
+    const name = document.createElement("div");
+    name.className = "player-name";
+    name.textContent = player.name;
+
+    bird.appendChild(name);
+    container.appendChild(bird);
+  }
+}
+
+function drawObstacles() {
   const container = document.getElementById("obstacleContainer");
   container.innerHTML = "";
+
+  for (let i = 0; i < obstacles.length; i++) {
+    const obstacle = obstacles[i];
+
+    const topElement = document.createElement("div");
+    topElement.className = "obstacle top-obstacle";
+    topElement.style.left = scaleX(obstacle.x) + "px";
+    topElement.style.width = scaleX(obstacle.width) + "px";
+    topElement.style.height = scaleY(obstacle.topHeight) + "px";
+
+    const bottomElement = document.createElement("div");
+    bottomElement.className = "obstacle bottom-obstacle";
+    bottomElement.style.left = scaleX(obstacle.x) + "px";
+    bottomElement.style.width = scaleX(obstacle.width) + "px";
+    bottomElement.style.height = scaleY(obstacle.bottomHeight) + "px";
+
+    container.appendChild(topElement);
+    container.appendChild(bottomElement);
+  }
 }
 
-function createObstaclePair(xPosition) {
-  if (nextObstaclePlanIndex >= obstaclePlan.length) {
-    return;
-  }
-
-  const gameHeight = getGameHeight();
-  const planItem = obstaclePlan[nextObstaclePlanIndex];
-
-  const topHeight = Math.floor(gameHeight * planItem.topPercent);
-  const bottomHeight = Math.floor(gameHeight * planItem.bottomPercent);
-
-  nextObstaclePlanIndex++;
-
-  const container = document.getElementById("obstacleContainer");
-
-  const topElement = document.createElement("div");
-  topElement.className = "obstacle top-obstacle";
-
-  const bottomElement = document.createElement("div");
-  bottomElement.className = "obstacle bottom-obstacle";
-
-  container.appendChild(topElement);
-  container.appendChild(bottomElement);
-
-  obstacles.push({
-    x: xPosition,
-    topHeight,
-    bottomHeight,
-    topElement,
-    bottomElement
-  });
-}
-
-function createInitialObstacles() {
-  clearObstacleElements();
-  obstacles = [];
-  nextObstaclePlanIndex = 0;
-
-  for (let i = 0; i < targetObstacleCount; i++) {
-    createObstaclePair((getGameWidth() - obstacleWidth) + i * obstacleSpacing);
-  }
-
+function drawGame() {
+  showGameArea();
+  drawPlayers();
   drawObstacles();
+}
+
+function updatePlayerList() {
+  const playerList = document.getElementById("playerList");
+
+  playerList.innerHTML =
+    "<h3>Players</h3>" +
+    players.map(function(player) {
+      const aliveText = player.alive ? "" : " (out)";
+      return "<div style='color:" + player.colour + "'>" +
+        player.name + aliveText +
+        "</div>";
+    }).join("");
+}
+
+function showWaitingMessage() {
+  const isHost = mySocketId === hostId;
+
+  document.getElementById("message").textContent =
+    "Game code: " + currentGameCode +
+    ". Speed: " + gameSpeed + " (" + gameSpeedMultiplier.toFixed(1) + "x). " +
+    (isHost
+      ? "You are the host. Press any movement control to start."
+      : "Waiting for the host to start.");
 }
 
 function requestStartGame() {
@@ -194,138 +224,8 @@ function startCountdown() {
     } else {
       clearInterval(timer);
       countdown.style.display = "none";
-      countdownRunning = false;
-      startGame();
     }
   }, 1000);
-}
-
-function startGame() {
-  gameRunning = true;
-  gameLoop();
-}
-
-function gameLoop() {
-  if (!gameRunning) {
-    return;
-  }
-
-  moveObstacles();
-  drawPlayers();
-  drawObstacles();
-
-  const myPlayer = players.find(function(player) {
-    return player.id === mySocketId;
-  });
-
-  if (myPlayer && checkCollision(myPlayer)) {
-    gameRunning = false;
-    document.getElementById("message").textContent =
-      "Game over! Obstacles passed: " + obstaclesPassed;
-    return;
-  }
-
-  requestAnimationFrame(gameLoop);
-}
-
-function moveObstacles() {
-  for (let i = 0; i < obstacles.length; i++) {
-    obstacles[i].x -= obstacleSpeed * gameSpeedMultiplier;
-  }
-
-  while (obstacles.length > 0 && obstacles[0].x < -obstacleWidth) {
-    obstacles[0].topElement.remove();
-    obstacles[0].bottomElement.remove();
-    obstacles.shift();
-
-    obstaclesPassed++;
-
-    const lastObstacle = obstacles[obstacles.length - 1];
-
-    if (lastObstacle) {
-      createObstaclePair(lastObstacle.x + obstacleSpacing);
-    }
-  }
-}
-
-function drawPlayers() {
-  const container = document.getElementById("playersContainer");
-  container.innerHTML = "";
-
-  for (let i = 0; i < players.length; i++) {
-    const player = players[i];
-
-    const bird = document.createElement("div");
-    bird.className = "player-bird";
-    bird.style.left = scaleServerX(player.x) + "px";
-    bird.style.top = scaleServerY(player.y) + "px";
-    bird.style.background = player.colour;
-    bird.style.opacity = player.alive ? "1" : "0.3";
-
-    const name = document.createElement("div");
-    name.className = "player-name";
-    name.textContent = player.name;
-
-    bird.appendChild(name);
-    container.appendChild(bird);
-  }
-}
-
-function scaleServerX(serverX) {
-  return serverX * (getGameWidth() / 420);
-}
-
-function scaleServerY(serverY) {
-  return serverY * (getGameHeight() / 500);
-}
-
-function drawObstacles() {
-  for (let i = 0; i < obstacles.length; i++) {
-    const obstacle = obstacles[i];
-
-    obstacle.topElement.style.left = obstacle.x + "px";
-    obstacle.topElement.style.height = obstacle.topHeight + "px";
-
-    obstacle.bottomElement.style.left = obstacle.x + "px";
-    obstacle.bottomElement.style.height = obstacle.bottomHeight + "px";
-  }
-}
-
-function checkCollision(player) {
-  const gameHeight = getGameHeight();
-
-  const clientX = scaleServerX(player.x);
-  const clientY = scaleServerY(player.y);
-
-  const birdLeft = clientX;
-  const birdRight = clientX + birdSize;
-  const birdTop = clientY;
-  const birdBottom = clientY + birdSize;
-
-  for (let i = 0; i < obstacles.length; i++) {
-    const obstacle = obstacles[i];
-
-    const obstacleLeft = obstacle.x;
-    const obstacleRight = obstacle.x + obstacleWidth;
-
-    const overlapsHorizontally =
-      birdRight > obstacleLeft &&
-      birdLeft < obstacleRight;
-
-    const hitsTop =
-      overlapsHorizontally &&
-      birdTop < obstacle.topHeight;
-
-    const hitsBottom =
-      overlapsHorizontally &&
-      birdBottom > gameHeight - obstacle.bottomHeight;
-
-    if (hitsTop || hitsBottom) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 function handleMove(direction) {
@@ -387,43 +287,62 @@ document.addEventListener("keydown", function(event) {
 });
 
 socket.on("roomUpdated", function(data) {
-  currentGameCode = data.roomCode;
-  hostId = data.hostId;
-  players = data.players;
+  updateLocalState(data);
 
-  setGameSpeed(data.gameSpeed || 10);
+  gameWaitingToStart = true;
+  countdownRunning = false;
+  gameRunning = false;
 
-  const isHost = mySocketId === hostId;
-
-  document.getElementById("message").textContent =
-    "Game code: " + currentGameCode +
-    ". Speed: " + gameSpeed + " (" + gameSpeedMultiplier.toFixed(1) + "x). " +
-    (isHost
-      ? "You are the host. Press any movement control to start."
-      : "Waiting for the host to start.");
-
-  const playerList = document.getElementById("playerList");
-
-  playerList.innerHTML =
-    "<h3>Players</h3>" +
-    players.map(function(player) {
-      return "<div style='color:" + player.colour + "'>" + player.name + "</div>";
-    }).join("");
-
-  prepareGame();
+  drawGame();
+  updatePlayerList();
+  showWaitingMessage();
 });
 
 socket.on("gameStarting", function(data) {
-  setGameSpeed(data.gameSpeed || 10);
+  updateLocalState(data);
 
-  obstaclePlan = data.obstaclePlan;
-  createInitialObstacles();
+  drawGame();
+  updatePlayerList();
+
+  document.getElementById("message").textContent = "Get ready...";
   startCountdown();
 });
 
-socket.on("playersUpdated", function(data) {
-  players = data.players;
-  drawPlayers();
+socket.on("gameStarted", function(data) {
+  updateLocalState(data);
+
+  gameWaitingToStart = false;
+  countdownRunning = false;
+  gameRunning = true;
+
+  document.getElementById("countdown").style.display = "none";
+  document.getElementById("message").textContent = "Battle started!";
+
+  drawGame();
+  updatePlayerList();
+});
+
+socket.on("gameState", function(data) {
+  updateLocalState(data);
+  drawGame();
+  updatePlayerList();
+});
+
+socket.on("gameEnded", function(data) {
+  gameWaitingToStart = false;
+  countdownRunning = false;
+  gameRunning = false;
+
+  if (data.winner) {
+    document.getElementById("message").textContent =
+      data.winner.name + " wins! Obstacles passed: " + data.obstaclesPassed;
+  } else {
+    document.getElementById("message").textContent =
+      "Everyone crashed! Obstacles passed: " + data.obstaclesPassed;
+  }
+
+  drawGame();
+  updatePlayerList();
 });
 
 socket.on("joinError", function(message) {
