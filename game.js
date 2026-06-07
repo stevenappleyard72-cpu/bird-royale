@@ -10,10 +10,12 @@ let obstaclesPassed = 0;
 
 let gameSpeed = 10;
 let gameSpeedMultiplier = 1;
+let targetScore = 3;
 
 let gameWaitingToStart = false;
 let countdownRunning = false;
 let gameRunning = false;
+let matchEnded = false;
 
 const serverWidth = 420;
 const serverHeight = 500;
@@ -49,6 +51,16 @@ function getSpeedFromInput() {
   return speed;
 }
 
+function getTargetScoreFromInput() {
+  const input = document.getElementById("targetScoreInput");
+  const score = Number(input.value) || 3;
+
+  if (score < 2) return 2;
+  if (score > 5) return 5;
+
+  return score;
+}
+
 function setGameSpeed(speed) {
   gameSpeed = speed || 10;
   gameSpeedMultiplier = gameSpeed / 10;
@@ -79,11 +91,13 @@ function createGame() {
   currentGameCode = generateGameCode();
 
   setGameSpeed(getSpeedFromInput());
+  targetScore = getTargetScoreFromInput();
 
   socket.emit("createGame", {
     playerName,
     roomCode: currentGameCode,
-    gameSpeed
+    gameSpeed,
+    targetScore
   });
 }
 
@@ -116,6 +130,7 @@ function updateLocalState(data) {
   obstacles = data.obstacles || [];
   obstaclesPassed = data.obstaclesPassed || 0;
   setGameSpeed(data.gameSpeed || gameSpeed);
+  targetScore = data.targetScore || targetScore;
 }
 
 function drawPlayers() {
@@ -180,8 +195,9 @@ function updatePlayerList() {
     "<h3>Players</h3>" +
     players.map(function(player) {
       const aliveText = player.alive ? "" : " (out)";
+      const scoreText = player.score !== undefined ? " (" + player.score + "/" + targetScore + ")" : "";
       return "<div style='color:" + player.colour + "'>" +
-        player.name + aliveText +
+        player.name + scoreText + aliveText +
         "</div>";
     }).join("");
 }
@@ -192,6 +208,7 @@ function showWaitingMessage() {
   document.getElementById("message").textContent =
     "Game code: " + currentGameCode +
     ". Speed: " + gameSpeed + " (" + gameSpeedMultiplier.toFixed(1) + "x). " +
+    "Target: " + targetScore + " rounds. " +
     (isHost
       ? "You are the host. Press any movement control to start."
       : "Waiting for the host to start.");
@@ -229,12 +246,15 @@ function startCountdown() {
 }
 
 function handleMove(direction) {
+  if (matchEnded) {
+    return;
+  }
+
   if (gameWaitingToStart && !countdownRunning) {
     if (mySocketId === hostId) {
       requestStartGame();
     } else {
-      document.getElementById("message").textContent =
-        "Waiting for the game creator to start.";
+      document.getElementById("message").textContent = "Waiting for the game creator to start.";
     }
 
     return;
@@ -292,6 +312,7 @@ socket.on("roomUpdated", function(data) {
   gameWaitingToStart = true;
   countdownRunning = false;
   gameRunning = false;
+  matchEnded = false;
 
   drawGame();
   updatePlayerList();
@@ -300,6 +321,8 @@ socket.on("roomUpdated", function(data) {
 
 socket.on("gameStarting", function(data) {
   updateLocalState(data);
+
+  matchEnded = false;
 
   drawGame();
   updatePlayerList();
@@ -328,17 +351,25 @@ socket.on("gameState", function(data) {
   updatePlayerList();
 });
 
-socket.on("gameEnded", function(data) {
+socket.on("roundEnded", function(data) {
   gameWaitingToStart = false;
   countdownRunning = false;
   gameRunning = false;
 
-  if (data.winner) {
-    document.getElementById("message").textContent =
-      data.winner.name + " wins! Obstacles passed: " + data.obstaclesPassed;
+  updateLocalState(data);
+
+  if (data.matchWinner) {
+    matchEnded = true;
+    document.getElementById("message").textContent = data.matchWinner.name + " wins the match with " + data.matchWinner.score + " round wins!";
   } else {
-    document.getElementById("message").textContent =
-      "Everyone crashed! Obstacles passed: " + data.obstaclesPassed;
+    matchEnded = false;
+    gameWaitingToStart = true;
+
+    if (data.roundWinner) {
+      document.getElementById("message").textContent = data.roundWinner.name + " wins the round! (" + data.roundWinner.score + "/" + data.targetScore + "). Waiting for host to start next round.";
+    } else {
+      document.getElementById("message").textContent = "Everyone crashed! No winner this round. Waiting for host to start next round.";
+    }
   }
 
   drawGame();
