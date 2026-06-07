@@ -11,6 +11,30 @@ const PORT = process.env.PORT || 3000;
 
 const rooms = {};
 
+const GAME_WIDTH = 420;
+const GAME_HEIGHT = 500;
+const BIRD_SIZE = 40;
+
+const GRAVITY = 0.45;
+const FLAP_STRENGTH = -7.8;
+const SIDE_FLAP_STRENGTH = -6.4;
+const HORIZONTAL_PUSH = 4.8;
+const HORIZONTAL_DRAG = 0.92;
+
+const DIVE_AMOUNT = 45;
+const DIVE_RECOVERY_DELAY = 140;
+
+const OBSTACLE_WIDTH = 40;
+const OBSTACLE_SPACING = 170;
+const OBSTACLE_SPEED = 2;
+const TARGET_OBSTACLE_COUNT = 4;
+
+const VICTIM_KNOCKBACK = 45;
+const ATTACKER_RECOIL = 15;
+const COLLISION_COOLDOWN_MS = 250;
+
+const COUNTDOWN_MS = 3500;
+
 const playerColours = [
   "gold",
   "dodgerblue",
@@ -19,22 +43,6 @@ const playerColours = [
   "violet",
   "orange"
 ];
-
-const birdSize = 40;
-const gameWidth = 420;
-const gameHeight = 500;
-
-const gravity = 0.45;
-const flapStrength = -7.8;
-const sideFlapStrength = -6.4;
-const horizontalPush = 4.8;
-const horizontalDrag = 0.92;
-
-const diveAmount = 45;
-const diveRecoveryDelay = 140;
-
-const victimKnockback = 45;
-const attackerRecoil = 15;
 
 app.use(express.static(__dirname));
 
@@ -46,27 +54,20 @@ function randomNumber(min, max) {
   return Math.floor(min + Math.random() * (max - min + 1));
 }
 
-function generateObstaclePlan(count) {
-  const plan = [];
-
-  for (let i = 0; i < count; i++) {
-    let topPercent = randomNumber(10, 30) / 100;
-    let bottomPercent = randomNumber(10, 30) / 100;
-
-    while (topPercent + bottomPercent > 0.5) {
-      topPercent = randomNumber(10, 30) / 100;
-      bottomPercent = randomNumber(10, 30) / 100;
-    }
-
-    plan.push({ topPercent, bottomPercent });
-  }
-
-  return plan;
-}
-
 function getPlayersInRoom(roomCode) {
   if (!rooms[roomCode]) return [];
   return Object.values(rooms[roomCode].players);
+}
+
+function publicRoomState(roomCode) {
+  const room = rooms[roomCode];
+
+  return {
+    roomCode,
+    hostId: room.hostId,
+    status: room.status,
+    players: getPlayersInRoom(roomCode)
+  };
 }
 
 function addPlayerToRoom(socket, roomCode, playerName) {
@@ -82,58 +83,80 @@ function addPlayerToRoom(socket, roomCode, playerName) {
     velocityX: 0,
     velocityY: 0,
     alive: true,
-    lastInputDirection: null
+    lastCollisionAt: 0
   };
 
   socket.join(roomCode);
 }
 
-function keepPlayerInsideArena(player) {
-  if (player.x < 0) {
-    player.x = 0;
-    player.velocityX = 0;
-  }
+function resetPlayersForMatch(room) {
+  const players = Object.values(room.players);
 
-  if (player.x > gameWidth - birdSize) {
-    player.x = gameWidth - birdSize;
-    player.velocityX = 0;
-  }
-
-  if (player.y < 0) {
-    player.y = 0;
-  }
-
-  if (player.y > gameHeight - birdSize) {
-    player.y = gameHeight - birdSize;
+  for (let i = 0; i < players.length; i++) {
+    players[i].x = 70 + i * 55;
+    players[i].y = 220;
+    players[i].velocityX = 0;
+    players[i].velocityY = 0;
+    players[i].alive = true;
+    players[i].lastCollisionAt = 0;
   }
 }
 
+function createObstacle(xPosition) {
+  let topHeight = randomNumber(50, 150);
+  let bottomHeight = randomNumber(50, 150);
+
+  while (topHeight + bottomHeight > GAME_HEIGHT / 2) {
+    topHeight = randomNumber(50, 150);
+    bottomHeight = randomNumber(50, 150);
+  }
+
+  return {
+    x: xPosition,
+    width: OBSTACLE_WIDTH,
+    topHeight,
+    bottomHeight
+  };
+}
+
+function createInitialObstacles() {
+  const obstacles = [];
+
+  for (let i = 0; i < TARGET_OBSTACLE_COUNT; i++) {
+    obstacles.push(
+      createObstacle((GAME_WIDTH - OBSTACLE_WIDTH) + i * OBSTACLE_SPACING)
+    );
+  }
+
+  return obstacles;
+}
+
 function applyInput(player, direction) {
-  player.lastInputDirection = direction;
+  if (!player.alive) return;
 
   if (direction === "up") {
-    player.velocityY = flapStrength;
+    player.velocityY = FLAP_STRENGTH;
   }
 
   if (direction === "left") {
-    player.velocityY = sideFlapStrength;
-    player.velocityX -= horizontalPush;
+    player.velocityY = SIDE_FLAP_STRENGTH;
+    player.velocityX -= HORIZONTAL_PUSH;
   }
 
   if (direction === "right") {
-    player.velocityY = sideFlapStrength;
-    player.velocityX += horizontalPush;
+    player.velocityY = SIDE_FLAP_STRENGTH;
+    player.velocityX += HORIZONTAL_PUSH;
   }
 
   if (direction === "down") {
-    player.y += diveAmount;
+    player.y += DIVE_AMOUNT;
     player.velocityY = 2;
 
     setTimeout(() => {
       if (player.alive) {
-        player.velocityY = flapStrength;
+        player.velocityY = FLAP_STRENGTH;
       }
-    }, diveRecoveryDelay);
+    }, DIVE_RECOVERY_DELAY);
   }
 }
 
@@ -143,17 +166,92 @@ function updatePlayerPhysics(room) {
   for (const player of players) {
     if (!player.alive) continue;
 
-    player.velocityY += gravity;
+    player.velocityY += GRAVITY;
     player.y += player.velocityY;
 
     player.x += player.velocityX;
-    player.velocityX *= horizontalDrag;
+    player.velocityX *= HORIZONTAL_DRAG;
 
     keepPlayerInsideArena(player);
   }
 }
 
+function keepPlayerInsideArena(player) {
+  if (player.x < 0) {
+    player.x = 0;
+    player.velocityX = 0;
+  }
+
+  if (player.x > GAME_WIDTH - BIRD_SIZE) {
+    player.x = GAME_WIDTH - BIRD_SIZE;
+    player.velocityX = 0;
+  }
+}
+
+function updateObstacles(room) {
+  for (const obstacle of room.obstacles) {
+    obstacle.x -= OBSTACLE_SPEED;
+  }
+
+  while (room.obstacles.length > 0 && room.obstacles[0].x < -OBSTACLE_WIDTH) {
+    room.obstacles.shift();
+    room.obstaclesPassed++;
+
+    const lastObstacle = room.obstacles[room.obstacles.length - 1];
+    room.obstacles.push(createObstacle(lastObstacle.x + OBSTACLE_SPACING));
+  }
+}
+
+function playerHitsBoundary(player) {
+  return player.y <= 0 || player.y >= GAME_HEIGHT - BIRD_SIZE;
+}
+
+function playerHitsObstacle(player, obstacle) {
+  const birdLeft = player.x;
+  const birdRight = player.x + BIRD_SIZE;
+  const birdTop = player.y;
+  const birdBottom = player.y + BIRD_SIZE;
+
+  const obstacleLeft = obstacle.x;
+  const obstacleRight = obstacle.x + obstacle.width;
+
+  const overlapsHorizontally =
+    birdRight > obstacleLeft &&
+    birdLeft < obstacleRight;
+
+  const hitsTop =
+    overlapsHorizontally &&
+    birdTop < obstacle.topHeight;
+
+  const hitsBottom =
+    overlapsHorizontally &&
+    birdBottom > GAME_HEIGHT - obstacle.bottomHeight;
+
+  return hitsTop || hitsBottom;
+}
+
+function applyObstacleDeaths(room) {
+  const players = Object.values(room.players);
+
+  for (const player of players) {
+    if (!player.alive) continue;
+
+    if (playerHitsBoundary(player)) {
+      player.alive = false;
+      continue;
+    }
+
+    for (const obstacle of room.obstacles) {
+      if (playerHitsObstacle(player, obstacle)) {
+        player.alive = false;
+        break;
+      }
+    }
+  }
+}
+
 function applyPlayerCollisions(room) {
+  const now = Date.now();
   const players = Object.values(room.players).filter(player => player.alive);
 
   for (let i = 0; i < players.length; i++) {
@@ -161,16 +259,23 @@ function applyPlayerCollisions(room) {
       const a = players[i];
       const b = players[j];
 
-      const aCenterX = a.x + birdSize / 2;
-      const aCenterY = a.y + birdSize / 2;
-      const bCenterX = b.x + birdSize / 2;
-      const bCenterY = b.y + birdSize / 2;
+      if (
+        now - a.lastCollisionAt < COLLISION_COOLDOWN_MS ||
+        now - b.lastCollisionAt < COLLISION_COOLDOWN_MS
+      ) {
+        continue;
+      }
+
+      const aCenterX = a.x + BIRD_SIZE / 2;
+      const aCenterY = a.y + BIRD_SIZE / 2;
+      const bCenterX = b.x + BIRD_SIZE / 2;
+      const bCenterY = b.y + BIRD_SIZE / 2;
 
       const dx = bCenterX - aCenterX;
       const dy = bCenterY - aCenterY;
       const distance = Math.sqrt(dx * dx + dy * dy);
 
-      if (distance > 0 && distance < birdSize) {
+      if (distance > 0 && distance < BIRD_SIZE) {
         const normalX = dx / distance;
         const normalY = dy / distance;
 
@@ -189,11 +294,11 @@ function applyPlayerCollisions(room) {
           directionY = -normalY;
         }
 
-        victim.x += directionX * victimKnockback;
-        victim.y += directionY * victimKnockback;
+        victim.x += directionX * VICTIM_KNOCKBACK;
+        victim.y += directionY * VICTIM_KNOCKBACK;
 
-        attacker.x -= directionX * attackerRecoil;
-        attacker.y -= directionY * attackerRecoil;
+        attacker.x -= directionX * ATTACKER_RECOIL;
+        attacker.y -= directionY * ATTACKER_RECOIL;
 
         victim.velocityX += directionX * 5;
         victim.velocityY += directionY * 5;
@@ -203,24 +308,60 @@ function applyPlayerCollisions(room) {
 
         keepPlayerInsideArena(victim);
         keepPlayerInsideArena(attacker);
+
+        attacker.lastCollisionAt = now;
+        victim.lastCollisionAt = now;
       }
     }
   }
 }
 
-function broadcastPlayerStates(roomCode) {
+function getAlivePlayers(room) {
+  return Object.values(room.players).filter(player => player.alive);
+}
+
+function checkForGameEnd(roomCode) {
+  const room = rooms[roomCode];
+  if (!room || room.status !== "running") return;
+
+  const alivePlayers = getAlivePlayers(room);
+
+  if (alivePlayers.length <= 1) {
+    room.status = "ended";
+
+    if (room.gameLoop) {
+      clearInterval(room.gameLoop);
+      room.gameLoop = null;
+    }
+
+    io.to(roomCode).emit("gameState", getGameState(roomCode));
+
+    io.to(roomCode).emit("gameEnded", {
+      winner: alivePlayers[0] || null,
+      obstaclesPassed: room.obstaclesPassed
+    });
+  }
+}
+
+function getGameState(roomCode) {
   const room = rooms[roomCode];
 
-  if (!room) return;
+  return {
+    status: room.status,
+    players: getPlayersInRoom(roomCode),
+    obstacles: room.obstacles,
+    obstaclesPassed: room.obstaclesPassed
+  };
+}
 
-  io.to(roomCode).emit("playersUpdated", {
-    players: getPlayersInRoom(roomCode)
-  });
+function broadcastGameState(roomCode) {
+  if (!rooms[roomCode]) return;
+
+  io.to(roomCode).emit("gameState", getGameState(roomCode));
 }
 
 function startGameLoop(roomCode) {
   const room = rooms[roomCode];
-
   if (!room) return;
 
   if (room.gameLoop) {
@@ -228,14 +369,19 @@ function startGameLoop(roomCode) {
   }
 
   room.gameLoop = setInterval(() => {
-    if (!rooms[roomCode] || !rooms[roomCode].started) {
+    const activeRoom = rooms[roomCode];
+
+    if (!activeRoom || activeRoom.status !== "running") {
       clearInterval(room.gameLoop);
       return;
     }
 
-    updatePlayerPhysics(room);
-    applyPlayerCollisions(room);
-    broadcastPlayerStates(roomCode);
+    updatePlayerPhysics(activeRoom);
+    applyPlayerCollisions(activeRoom);
+    updateObstacles(activeRoom);
+    applyObstacleDeaths(activeRoom);
+    broadcastGameState(roomCode);
+    checkForGameEnd(roomCode);
   }, 1000 / 60);
 }
 
@@ -244,62 +390,34 @@ io.on("connection", (socket) => {
     rooms[roomCode] = {
       hostId: socket.id,
       players: {},
-      started: false,
-      obstaclePlan: [],
+      status: "waiting",
+      obstacles: [],
+      obstaclesPassed: 0,
       gameLoop: null
     };
 
     addPlayerToRoom(socket, roomCode, playerName);
 
-    io.to(roomCode).emit("roomUpdated", {
-      roomCode,
-      hostId: rooms[roomCode].hostId,
-      players: getPlayersInRoom(roomCode)
-    });
+    io.to(roomCode).emit("roomUpdated", publicRoomState(roomCode));
   });
 
   socket.on("joinGame", ({ playerName, roomCode }) => {
-    if (!rooms[roomCode]) {
+    const room = rooms[roomCode];
+
+    if (!room) {
       socket.emit("joinError", "Game code not found.");
       return;
     }
 
-    if (rooms[roomCode].started) {
+    if (room.status !== "waiting") {
       socket.emit("joinError", "This game has already started.");
       return;
     }
 
     addPlayerToRoom(socket, roomCode, playerName);
 
-    io.to(roomCode).emit("roomUpdated", {
-      roomCode,
-      hostId: rooms[roomCode].hostId,
-      players: getPlayersInRoom(roomCode)
-    });
+    io.to(roomCode).emit("roomUpdated", publicRoomState(roomCode));
   });
-
-socket.on("playerDied", ({ roomCode }) => {
-  const room = rooms[roomCode];
-  if (!room || !room.players[socket.id]) return;
-  room.players[socket.id].alive = false;
-  const alivePlayers = Object.values(room.players).filter(player => player.alive);
-
-  io.to(roomCode).emit("playersUpdated", {
-    players: getPlayersInRoom(roomCode)
-  });
-
-  if (alivePlayers.length <= 1) {
-    room.started = false;
-    if (room.gameLoop) {
-      clearInterval(room.gameLoop);
-      room.gameLoop = null;
-    }
-
-    io.to(roomCode).emit("gameEnded", {
-      winner: alivePlayers[0] || null
-    });
-  }
-});
 
   socket.on("requestStartGame", ({ roomCode }) => {
     const room = rooms[roomCode];
@@ -311,31 +429,39 @@ socket.on("playerDied", ({ roomCode }) => {
       return;
     }
 
-room.obstaclePlan = generateObstaclePlan(100);
+    if (room.status !== "waiting") return;
 
-io.to(roomCode).emit("gameStarting", {
-  obstaclePlan: room.obstaclePlan
-});
+    resetPlayersForMatch(room);
+    room.obstacles = createInitialObstacles();
+    room.obstaclesPassed = 0;
+    room.status = "countdown";
 
-// Wait for the client countdown before starting physics
-setTimeout(() => {
-  if (!rooms[roomCode]) {
-    return;
-  }
+    const startAt = Date.now() + COUNTDOWN_MS;
 
-  rooms[roomCode].started = true;
-  startGameLoop(roomCode);
-}, 4000);
+    io.to(roomCode).emit("countdownStarted", {
+      startAt,
+      initialState: getGameState(roomCode)
+    });
+
+    setTimeout(() => {
+      if (!rooms[roomCode] || rooms[roomCode].status !== "countdown") {
+        return;
+      }
+
+      rooms[roomCode].status = "running";
+      io.to(roomCode).emit("gameStarted", getGameState(roomCode));
+      startGameLoop(roomCode);
+    }, COUNTDOWN_MS);
   });
 
   socket.on("playerInput", ({ roomCode, direction }) => {
     const room = rooms[roomCode];
 
-    if (!room || !room.players[socket.id]) return;
+    if (!room || room.status !== "running") return;
 
     const player = room.players[socket.id];
 
-    if (!room.started || !player.alive) return;
+    if (!player || !player.alive) return;
 
     applyInput(player, direction);
   });
@@ -347,19 +473,18 @@ setTimeout(() => {
       if (room.players[socket.id]) {
         delete room.players[socket.id];
 
-        io.to(roomCode).emit("roomUpdated", {
-          roomCode,
-          hostId: room.hostId,
-          players: getPlayersInRoom(roomCode)
-        });
-
         if (Object.keys(room.players).length === 0) {
           if (room.gameLoop) {
             clearInterval(room.gameLoop);
           }
 
           delete rooms[roomCode];
+          return;
         }
+
+        io.to(roomCode).emit("roomUpdated", publicRoomState(roomCode));
+        broadcastGameState(roomCode);
+        checkForGameEnd(roomCode);
       }
     }
   });
