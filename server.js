@@ -22,7 +22,7 @@ const sideFlapStrength = -6.4;
 const horizontalPush = 4.8;
 const horizontalDrag = 0.92;
 
-const diveGravityBoost = 0.2;
+const diveGravityBoost = 0.5;
 const maxExtraGravity = 0.8;
 const diveGravityDecay = 0.8;
 
