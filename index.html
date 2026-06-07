@@ -36,22 +36,16 @@
       <div id="playersContainer"></div>
       <div id="obstacleContainer"></div>
       <div id="countdown"></div>
-      <div id="joystick-container">
-        <div id="joystick-base">
-          <div id="joystick-knob"></div>
-        </div>
-      </div>
     </div>
 
     <div id="controls">
       <div class="control-row">
-        <button class="control-button" onclick="handleMove('left')">↖</button>
-        <button class="control-button" onclick="handleMove('up')">↑</button>
-        <button class="control-button" onclick="handleMove('right')">↗</button>
-      </div>
-
-      <div class="control-row">
-        <button class="control-button" onclick="handleMove('down')">↓</button>
+        <button class="control-button control-left" onclick="handleMove('left')">↖</button>
+        <div class="control-middle">
+          <button class="control-button control-up" onclick="handleMove('up')">↑</button>
+          <button class="control-button control-down" onclick="handleMove('down')">↓</button>
+        </div>
+        <button class="control-button control-right" onclick="handleMove('right')">↗</button>
       </div>
     </div>
 
