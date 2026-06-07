@@ -22,9 +22,9 @@ const sideFlapStrength = -6.4;
 const horizontalPush = 4.8;
 const horizontalDrag = 0.92;
 
-const diveGravityBoost = 0.5;
-const maxExtraGravity = 0.8;
-const diveGravityDecay = 0.8;
+const diveBurstStart = 7;
+const diveBurstDecay = 0.65;
+const diveBurstMinimum = 0.15;
 
 const obstacleWidth = 40;
 const obstacleSpacing = 170;
@@ -127,7 +127,7 @@ function addPlayerToRoom(socket, roomCode, playerName) {
     y: 220,
     velocityX: 0,
     velocityY: 0,
-    extraGravity: 0,
+    diveBurst: 0,
     alive: true,
     score: 0
   };
@@ -143,7 +143,7 @@ function resetPlayersForRound(room) {
     players[i].y = 220;
     players[i].velocityX = 0;
     players[i].velocityY = 0;
-    players[i].extraGravity = 0;
+    players[i].diveBurst = 0;
     players[i].alive = true;
   }
 }
@@ -186,10 +186,7 @@ function applyInput(player, direction, room) {
   }
 
   if (direction === "down") {
-    player.extraGravity += diveGravityBoost;
-    if (player.extraGravity > maxExtraGravity) {
-      player.extraGravity = maxExtraGravity;
-    }
+    player.diveBurst = diveBurstStart;
   }
 }
 
@@ -200,12 +197,12 @@ function updatePlayerPhysics(room) {
   for (const player of players) {
     if (!player.alive) continue;
 
-    player.velocityY += (gravity + player.extraGravity) * speedMultiplier;
-    player.y += player.velocityY * speedMultiplier;
-    player.extraGravity *= diveGravityDecay;
+    player.velocityY += gravity * speedMultiplier;
+    player.y += (player.velocityY + player.diveBurst) * speedMultiplier;
+    player.diveBurst *= diveBurstDecay;
 
-    if (player.extraGravity < 0.01) {
-      player.extraGravity = 0;
+    if (player.diveBurst < diveBurstMinimum) {
+      player.diveBurst = 0;
     }
 
     player.x += player.velocityX * speedMultiplier;
