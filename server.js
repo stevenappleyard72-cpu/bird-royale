@@ -283,7 +283,7 @@ socket.on("playerDied", ({ roomCode }) => {
   if (!room || !room.players[socket.id]) return;
   room.players[socket.id].alive = false;
   const alivePlayers = Object.values(room.players).filter(player => player.alive);
-  
+
   io.to(roomCode).emit("playersUpdated", {
     players: getPlayersInRoom(roomCode)
   });
@@ -311,14 +311,21 @@ socket.on("playerDied", ({ roomCode }) => {
       return;
     }
 
-    room.started = true;
-    room.obstaclePlan = generateObstaclePlan(100);
+room.obstaclePlan = generateObstaclePlan(100);
 
-    io.to(roomCode).emit("gameStarting", {
-      obstaclePlan: room.obstaclePlan
-    });
+io.to(roomCode).emit("gameStarting", {
+  obstaclePlan: room.obstaclePlan
+});
 
-    startGameLoop(roomCode);
+// Wait for the client countdown before starting physics
+setTimeout(() => {
+  if (!rooms[roomCode]) {
+    return;
+  }
+
+  rooms[roomCode].started = true;
+  startGameLoop(roomCode);
+}, 4000);
   });
 
   socket.on("playerInput", ({ roomCode, direction }) => {
