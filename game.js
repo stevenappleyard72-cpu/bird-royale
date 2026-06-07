@@ -1,5 +1,7 @@
 const socket = io();
 
+const APP_VERSION = "1.0.0";
+
 let currentGameCode = "";
 let hostId = "";
 let mySocketId = "";
@@ -30,6 +32,7 @@ const birdSize = 40;
 
 socket.on("connect", function() {
   mySocketId = socket.id;
+  document.getElementById("version").textContent = "v" + APP_VERSION;
 });
 
 function generateGameCode() {
