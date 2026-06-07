@@ -432,8 +432,6 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const existingPlayer = Object.values(room.players).find(player => player.name === playerName);
-
     addPlayerToRoom(socket, roomCode, playerName);
 
     io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
@@ -449,9 +447,20 @@ io.on("connection", (socket) => {
       return;
     }
 
-    if (room.started) return;
+if (room.started) return;
 
-    resetPlayersForRound(room);
+const playerCount = Object.keys(room.players).length;
+
+if (playerCount < 2) {
+
+  socket.emit("joinError", "You need at least 2 players to start the round.");
+
+  return;
+
+}
+
+resetPlayersForRound(room);
+
     room.obstacles = createInitialObstacles();
     room.obstaclesPassed = 0;
 

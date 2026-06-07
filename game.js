@@ -30,7 +30,7 @@ const serverWidth = 420;
 const serverHeight = 500;
 const birdSize = 40;
 
-socket.on("connect", function() {
+socket.on("connect", function () {
   mySocketId = socket.id;
   document.getElementById("version").textContent = "v" + APP_VERSION;
 });
@@ -99,7 +99,7 @@ function scaleSize(size) {
 function createConfetti() {
   const confettiCount = 50;
   const container = document.getElementById("winnerScene");
-  
+
   for (let i = 0; i < confettiCount; i++) {
     const confetti = document.createElement("div");
     confetti.className = "confetti";
@@ -117,7 +117,7 @@ function showWinnerScene(winner) {
     playerStats[winner.id] = { wins: 0, matches: 0 };
   }
   playerStats[winner.id].wins++;
-  
+
   // Count total matches for all players
   for (const player of players) {
     if (!playerStats[player.id]) {
@@ -131,7 +131,7 @@ function showWinnerScene(winner) {
   // Create winner scene
   const winnerScene = document.createElement("div");
   winnerScene.id = "winnerScene";
-  
+
   // Darken arena
   const darkOverlay = document.createElement("div");
   darkOverlay.className = "winner-overlay";
@@ -147,7 +147,7 @@ function showWinnerScene(winner) {
   // Other birds arranged around winner
   const otherPlayers = players.filter(p => p.id !== winner.id);
   const angleStep = (2 * Math.PI) / Math.max(otherPlayers.length, 1);
-  
+
   otherPlayers.forEach((player, index) => {
     const angle = angleStep * index;
     const distance = 150;
@@ -172,7 +172,7 @@ function showWinnerScene(winner) {
   // Champion text
   const text = document.createElement("div");
   text.className = "winner-text";
-  text.innerHTML = "BIRD ROYALE<br>CHAMPION<br><br>" + winner.name + "<br><br>" + 
+  text.innerHTML = "BIRD ROYALE<br>CHAMPION<br><br>" + winner.name + "<br><br>" +
     playerStats[winner.id].wins + " wins - " + losses + " losses";
   winnerScene.appendChild(text);
 
@@ -193,7 +193,7 @@ function hideWinnerScene() {
     winnerScene.remove();
   }
   winnerSceneActive = false;
-  
+
   // Return to lobby
   document.getElementById("lobby").style.display = "block";
   document.getElementById("gameArea").style.display = "none";
@@ -227,7 +227,7 @@ function drawExplosions() {
     // Create expanding circle effect
     const explosionDiv = document.createElement("div");
     explosionDiv.className = "explosion";
-    
+
     const maxRadius = scaleSize(birdSize * 1.5);
     const currentRadius = maxRadius * progress;
     const opacity = 1 - progress;
@@ -372,7 +372,7 @@ function updatePlayerList() {
 
   playerList.innerHTML =
     "<h3>Players</h3>" +
-    players.map(function(player) {
+    players.map(function (player) {
       const aliveText = player.alive ? "" : " (out)";
       const scoreText = player.score !== undefined ? " (" + player.score + "/" + targetScore + ")" : "";
       return "<div style='color:" + player.colour + "'>" +
@@ -410,7 +410,7 @@ function startCountdown() {
   countdown.style.display = "block";
   countdown.textContent = number;
 
-  const timer = setInterval(function() {
+  const timer = setInterval(function () {
     number--;
 
     if (number > 0) {
@@ -449,7 +449,7 @@ function handleMove(direction) {
   });
 }
 
-document.addEventListener("keydown", function(event) {
+document.addEventListener("keydown", function (event) {
   const activeElement = document.activeElement;
 
   if (
@@ -492,7 +492,7 @@ document.addEventListener("keydown", function(event) {
   }
 });
 
-socket.on("roomUpdated", function(data) {
+socket.on("roomUpdated", function (data) {
   updateLocalState(data);
 
   gameWaitingToStart = true;
@@ -501,16 +501,20 @@ socket.on("roomUpdated", function(data) {
   matchEnded = false;
   explosions = {};
   previousPlayersState = {};
-  
-  hideWinnerScene();
-  playerStats = {};  // Reset stats for new game
 
+  const winnerScene = document.getElementById("winnerScene");
+  if (winnerScene) {
+    winnerScene.remove();
+  }
+
+  winnerSceneActive = false;
+  playerStats = {};
   drawGame();
   updatePlayerList();
   showWaitingMessage();
 });
 
-socket.on("gameStarting", function(data) {
+socket.on("gameStarting", function (data) {
   updateLocalState(data);
 
   matchEnded = false;
@@ -524,7 +528,7 @@ socket.on("gameStarting", function(data) {
   startCountdown();
 });
 
-socket.on("gameStarted", function(data) {
+socket.on("gameStarted", function (data) {
   updateLocalState(data);
 
   gameWaitingToStart = false;
@@ -538,13 +542,13 @@ socket.on("gameStarted", function(data) {
   updatePlayerList();
 });
 
-socket.on("gameState", function(data) {
+socket.on("gameState", function (data) {
   updateLocalState(data);
   drawGame();
   updatePlayerList();
 });
 
-socket.on("roundEnded", function(data) {
+socket.on("roundEnded", function (data) {
   gameWaitingToStart = false;
   countdownRunning = false;
   gameRunning = false;
@@ -554,7 +558,7 @@ socket.on("roundEnded", function(data) {
   if (data.matchWinner) {
     matchEnded = true;
     document.getElementById("message").textContent = data.matchWinner.name + " wins the match!";
-    
+
     // Show winner scene after a brief delay to see the final state
     setTimeout(() => {
       showWinnerScene(data.matchWinner);
@@ -567,23 +571,23 @@ socket.on("roundEnded", function(data) {
 
     if (data.roundWinner) {
       message = data.roundWinner.name + " wins the round! ⭐\n";
-      
+
       // Build scores list with star next to round winner
-      const scoresText = players.map(function(player) {
+      const scoresText = players.map(function (player) {
         const star = player.id === data.roundWinner.id ? " ⭐" : "";
         return player.name + " (" + player.score + "/" + data.targetScore + ")" + star;
       }).join(" | ");
-      
+
       message += "Scores: " + scoresText + "\n";
       message += "Waiting for host to start next round.";
     } else {
       message = "Everyone crashed! No winner this round.\n";
-      
+
       // Show all scores even with no winner
-      const scoresText = players.map(function(player) {
+      const scoresText = players.map(function (player) {
         return player.name + " (" + player.score + "/" + data.targetScore + ")";
       }).join(" | ");
-      
+
       message += "Scores: " + scoresText + "\n";
       message += "Waiting for host to start next round.";
     }
@@ -595,6 +599,6 @@ socket.on("roundEnded", function(data) {
   updatePlayerList();
 });
 
-socket.on("joinError", function(message) {
+socket.on("joinError", function (message) {
   document.getElementById("message").textContent = message;
 });
