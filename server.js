@@ -364,7 +364,13 @@ function checkForRoundEnd(roomCode) {
   const alivePlayers = getAlivePlayers(room);
 
   if (alivePlayers.length <= 1) {
-    endRound(roomCode, alivePlayers[0] || null);
+    // First time detecting end condition, start victory timer to show explosions
+    if (!room.victoryTimer) {
+      room.victoryTimer = setTimeout(() => {
+        endRound(roomCode, alivePlayers[0] || null);
+        room.victoryTimer = null;
+      }, 600);  // Match explosion animation duration
+    }
   }
 }
 
@@ -480,6 +486,7 @@ io.on("connection", (socket) => {
 
         if (Object.keys(room.players).length === 0) {
           if (room.gameLoop) clearInterval(room.gameLoop);
+          if (room.victoryTimer) clearTimeout(room.victoryTimer);
           delete rooms[roomCode];
           return;
         }
