@@ -1,60 +1,56 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <title>Bird Royale</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <h1>Bird Royale</h1>
+  <head>
+    <title>Bird Royale</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <h1>Bird Royale</h1>
 
-  <div class="panel" id="lobby">
-    <h2>Lobby</h2>
+    <div class="panel" id="lobby">
+      <h2>Lobby</h2>
 
-    <input id="playerName" placeholder="Your name" />
-<input id="gameSpeedInput"
-       type="number"
-       min="1"
-       max="99"
-       value="10">
-  <p>
-Game Speed:
-1 = 0.1x,
-10 = 1.0x,
-20 = 2.0x,
-99 = 9.9x
-</p>
-    <br />
+      <input id="playerName" placeholder="Your name" />
+      <br />
+      <input id="gameSpeedInput" type="number" min="1" max="99" value="10" placeholder="Game speed 1-99" />
+      <p>Speed: 1 = 0.1x, 10 = 1.0x, 99 = 9.9x</p>
+      <br />
 
-    <button onclick="createGame()">Create Game</button>
+      <input id="targetScoreInput" type="number" min="2" max="5" value="3" placeholder="Target score 2-5" />
+      <br />
+      <p>Target score: first to 2-5 round wins</p>
 
-    <hr />
+      <button onclick="createGame()">Create Game</button>
 
-    <input id="gameCodeInput" placeholder="Game code" />
-    <br />
-    <button onclick="joinGame()">Join Game</button>
+      <hr />
 
-    <p id="message"></p>
-    <div id="playerList"></div>
-  </div>
+      <input id="gameCodeInput" placeholder="Game code" />
+      <br />
+      <button onclick="joinGame()">Join Game</button>
 
-<div id="gameArea">
-    <div id="playersContainer"></div>
-    <div id="obstacleContainer"></div>
-    <div id="countdown"></div>
-</div>
-
-  <div id="controls">
-    <div class="control-row">
-      <button class="control-button" onclick="handleMove('left')">↖</button>
-      <button class="control-button" onclick="handleMove('up')">↑</button>
-      <button class="control-button" onclick="handleMove('right')">↗</button>
+      <p id="message"></p>
+      <div id="playerList"></div>
     </div>
 
-    <div class="control-row">
-      <button class="control-button" onclick="handleMove('down')">↓</button>
+    <div id="gameArea">
+      <div id="playersContainer"></div>
+      <div id="obstacleContainer"></div>
+      <div id="countdown"></div>
     </div>
-  </div>
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="game.js"></script>
-</body>
+
+    <div id="controls">
+      <div class="control-row">
+        <button class="control-button" onclick="handleMove('left')">↖</button>
+        <button class="control-button" onclick="handleMove('up')">↑</button>
+        <button class="control-button" onclick="handleMove('right')">↗</button>
+      </div>
+
+      <div class="control-row">
+        <button class="control-button" onclick="handleMove('down')">↓</button>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="game.js"></script>
+  </body>
 </html>

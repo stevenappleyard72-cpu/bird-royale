@@ -43,6 +43,11 @@ function clampGameSpeed(value) {
   return Math.max(1, Math.min(99, speed));
 }
 
+function clampTargetScore(value) {
+  const score = Number(value) || 3;
+  return Math.max(2, Math.min(5, score));
+}
+
 function getSpeedMultiplier(room) {
   return (room.gameSpeed || 10) / 10;
 }
@@ -93,6 +98,7 @@ function getGameState(roomCode) {
     hostId: room.hostId,
     started: room.started,
     gameSpeed: room.gameSpeed,
+    targetScore: room.targetScore,
     players: getPlayersInRoom(roomCode),
     obstacles: room.obstacles,
     obstaclesPassed: room.obstaclesPassed
@@ -119,13 +125,14 @@ function addPlayerToRoom(socket, roomCode, playerName) {
     y: 220,
     velocityX: 0,
     velocityY: 0,
-    alive: true
+    alive: true,
+    score: 0
   };
 
   socket.join(roomCode);
 }
 
-function resetPlayers(room) {
+function resetPlayersForRound(room) {
   const players = Object.values(room.players);
 
   for (let i = 0; i < players.length; i++) {
@@ -320,7 +327,36 @@ function getAlivePlayers(room) {
   return Object.values(room.players).filter(player => player.alive);
 }
 
-function checkForGameEnd(roomCode) {
+function endRound(roomCode, winner) {
+  const room = rooms[roomCode];
+
+  if (!room) return;
+
+  room.started = false;
+
+  if (room.gameLoop) {
+    clearInterval(room.gameLoop);
+    room.gameLoop = null;
+  }
+
+  if (winner) {
+    winner.score++;
+  }
+
+  const matchWinner = winner && winner.score >= room.targetScore ? winner : null;
+
+  broadcastGameState(roomCode);
+
+  io.to(roomCode).emit("roundEnded", {
+    roundWinner: winner || null,
+    matchWinner,
+    targetScore: room.targetScore,
+    players: getPlayersInRoom(roomCode),
+    obstaclesPassed: room.obstaclesPassed
+  });
+}
+
+function checkForRoundEnd(roomCode) {
   const room = rooms[roomCode];
 
   if (!room || !room.started) return;
@@ -328,19 +364,7 @@ function checkForGameEnd(roomCode) {
   const alivePlayers = getAlivePlayers(room);
 
   if (alivePlayers.length <= 1) {
-    room.started = false;
-
-    if (room.gameLoop) {
-      clearInterval(room.gameLoop);
-      room.gameLoop = null;
-    }
-
-    broadcastGameState(roomCode);
-
-    io.to(roomCode).emit("gameEnded", {
-      winner: alivePlayers[0] || null,
-      obstaclesPassed: room.obstaclesPassed
-    });
+    endRound(roomCode, alivePlayers[0] || null);
   }
 }
 
@@ -366,21 +390,21 @@ function startGameLoop(roomCode) {
     updateObstacles(activeRoom);
     applyObstacleDeaths(activeRoom);
     broadcastGameState(roomCode);
-    checkForGameEnd(roomCode);
+    checkForRoundEnd(roomCode);
   }, 1000 / 60);
 }
 
 io.on("connection", (socket) => {
-  socket.on("createGame", ({ playerName, roomCode, gameSpeed }) => {
+  socket.on("createGame", ({ playerName, roomCode, gameSpeed, targetScore }) => {
     rooms[roomCode] = {
       hostId: socket.id,
       players: {},
       started: false,
-      obstaclePlan: [],
       obstacles: [],
       obstaclesPassed: 0,
       gameLoop: null,
-      gameSpeed: clampGameSpeed(gameSpeed)
+      gameSpeed: clampGameSpeed(gameSpeed),
+      targetScore: clampTargetScore(targetScore)
     };
 
     addPlayerToRoom(socket, roomCode, playerName);
@@ -397,9 +421,11 @@ io.on("connection", (socket) => {
     }
 
     if (room.started) {
-      socket.emit("joinError", "This game has already started.");
+      socket.emit("joinError", "This round has already started.");
       return;
     }
+
+    const existingPlayer = Object.values(room.players).find(player => player.name === playerName);
 
     addPlayerToRoom(socket, roomCode, playerName);
 
@@ -412,18 +438,20 @@ io.on("connection", (socket) => {
     if (!room) return;
 
     if (socket.id !== room.hostId) {
-      socket.emit("joinError", "Only the game creator can start the game.");
+      socket.emit("joinError", "Only the game creator can start the round.");
       return;
     }
 
-    resetPlayers(room);
+    if (room.started) return;
+
+    resetPlayersForRound(room);
     room.obstacles = createInitialObstacles();
     room.obstaclesPassed = 0;
 
     io.to(roomCode).emit("gameStarting", getGameState(roomCode));
 
     setTimeout(() => {
-      if (!rooms[roomCode]) return;
+      if (!rooms[roomCode] || rooms[roomCode].started) return;
 
       rooms[roomCode].started = true;
       io.to(roomCode).emit("gameStarted", getGameState(roomCode));
@@ -458,7 +486,7 @@ io.on("connection", (socket) => {
 
         io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
         broadcastGameState(roomCode);
-        checkForGameEnd(roomCode);
+        checkForRoundEnd(roomCode);
       }
     }
   });
