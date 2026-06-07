@@ -186,7 +186,7 @@ function applyInput(player, direction, room) {
   }
 
   if (direction === "down") {
-    player.diveBurst = diveBurstStart;
+  player.velocityY = Math.max(player.velocityY, 10);
   }
 }
 
