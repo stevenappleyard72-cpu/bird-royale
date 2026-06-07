@@ -22,8 +22,10 @@ const sideFlapStrength = -6.4;
 const horizontalPush = 4.8;
 const horizontalDrag = 0.92;
 
-const diveBurstStart = 7;
-const diveBurstDecay = 0.65;
+const diveBurstStart = 14;
+
+const diveBurstDecay = 0.55;
+
 const diveBurstMinimum = 0.15;
 
 const obstacleWidth = 40;
