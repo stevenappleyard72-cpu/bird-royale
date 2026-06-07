@@ -97,6 +97,9 @@ button {
 #message {
   font-weight: bold;
   font-size: 18px;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  padding: 12px;
 }
 
 .obstacle {

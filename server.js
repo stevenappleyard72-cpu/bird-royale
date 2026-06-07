@@ -352,6 +352,7 @@ function endRound(roomCode, winner) {
     matchWinner,
     targetScore: room.targetScore,
     players: getPlayersInRoom(roomCode),
+    obstacles: room.obstacles,
     obstaclesPassed: room.obstaclesPassed
   });
 }

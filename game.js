@@ -437,11 +437,32 @@ socket.on("roundEnded", function(data) {
     matchEnded = false;
     gameWaitingToStart = true;
 
+    let message = "";
+
     if (data.roundWinner) {
-      document.getElementById("message").textContent = data.roundWinner.name + " wins the round! (" + data.roundWinner.score + "/" + data.targetScore + "). Waiting for host to start next round.";
+      message = data.roundWinner.name + " wins the round! ⭐\n";
+      
+      // Build scores list with star next to round winner
+      const scoresText = players.map(function(player) {
+        const star = player.id === data.roundWinner.id ? " ⭐" : "";
+        return player.name + " (" + player.score + "/" + data.targetScore + ")" + star;
+      }).join(" | ");
+      
+      message += "Scores: " + scoresText + "\n";
+      message += "Waiting for host to start next round.";
     } else {
-      document.getElementById("message").textContent = "Everyone crashed! No winner this round. Waiting for host to start next round.";
+      message = "Everyone crashed! No winner this round.\n";
+      
+      // Show all scores even with no winner
+      const scoresText = players.map(function(player) {
+        return player.name + " (" + player.score + "/" + data.targetScore + ")";
+      }).join(" | ");
+      
+      message += "Scores: " + scoresText + "\n";
+      message += "Waiting for host to start next round.";
     }
+
+    document.getElementById("message").textContent = message;
   }
 
   drawGame();
