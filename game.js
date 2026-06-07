@@ -18,6 +18,9 @@ let obstaclesPassed = 0;
 let obstaclePlan = [];
 let nextObstaclePlanIndex = 0;
 
+let gameSpeed = 10;
+let gameSpeedMultiplier = 1;
+
 let gameWaitingToStart = false;
 let countdownRunning = false;
 let gameRunning = false;
@@ -50,13 +53,31 @@ function getGameHeight() {
   return document.getElementById("gameArea").clientHeight;
 }
 
+function getSpeedFromInput() {
+  const input = document.getElementById("gameSpeedInput");
+  const speed = Number(input.value) || 10;
+
+  if (speed < 1) return 1;
+  if (speed > 99) return 99;
+
+  return speed;
+}
+
+function setGameSpeed(speed) {
+  gameSpeed = speed || 10;
+  gameSpeedMultiplier = gameSpeed / 10;
+}
+
 function createGame() {
   const playerName = getPlayerName();
   currentGameCode = generateGameCode();
 
+  setGameSpeed(getSpeedFromInput());
+
   socket.emit("createGame", {
     playerName,
-    roomCode: currentGameCode
+    roomCode: currentGameCode,
+    gameSpeed
   });
 }
 
@@ -193,26 +214,23 @@ function gameLoop() {
   drawPlayers();
   drawObstacles();
 
-if (myPlayerHasHitObstacleOrBoundary()) {
-  gameRunning = false;
-  socket.emit("playerDied", {
-  roomCode: currentGameCode
+  const myPlayer = players.find(function(player) {
+    return player.id === mySocketId;
   });
 
-  document.getElementById("message").textContent =
-
-    "You crashed! Waiting for result...";
-
-  return;
-
-}
+  if (myPlayer && checkCollision(myPlayer)) {
+    gameRunning = false;
+    document.getElementById("message").textContent =
+      "Game over! Obstacles passed: " + obstaclesPassed;
+    return;
+  }
 
   requestAnimationFrame(gameLoop);
 }
 
 function moveObstacles() {
   for (let i = 0; i < obstacles.length; i++) {
-    obstacles[i].x -= obstacleSpeed;
+    obstacles[i].x -= obstacleSpeed * gameSpeedMultiplier;
   }
 
   while (obstacles.length > 0 && obstacles[0].x < -obstacleWidth) {
@@ -242,6 +260,7 @@ function drawPlayers() {
     bird.style.left = scaleServerX(player.x) + "px";
     bird.style.top = scaleServerY(player.y) + "px";
     bird.style.background = player.colour;
+    bird.style.opacity = player.alive ? "1" : "0.3";
 
     const name = document.createElement("div");
     name.className = "player-name";
@@ -260,14 +279,6 @@ function scaleServerY(serverY) {
   return serverY * (getGameHeight() / 500);
 }
 
-function unscaleClientX(clientX) {
-  return clientX / (getGameWidth() / 420);
-}
-
-function unscaleClientY(clientY) {
-  return clientY / (getGameHeight() / 500);
-}
-
 function drawObstacles() {
   for (let i = 0; i < obstacles.length; i++) {
     const obstacle = obstacles[i];
@@ -280,31 +291,11 @@ function drawObstacles() {
   }
 }
 
-function getMyPlayer() {
-  return players.find(function(player) {
-    return player.id === mySocketId;
-  });
-}
-
-function myPlayerHasHitObstacleOrBoundary() {
-  const myPlayer = getMyPlayer();
-
-  if (!myPlayer) {
-    return false;
-  }
-
-  const clientX = scaleServerX(myPlayer.x);
-  const clientY = scaleServerY(myPlayer.y);
-
-  if (clientY <= 0 || clientY >= getGameHeight() - birdSize) {
-    return true;
-  }
-
-  return checkObstacleCollision(clientX, clientY);
-}
-
-function checkObstacleCollision(clientX, clientY) {
+function checkCollision(player) {
   const gameHeight = getGameHeight();
+
+  const clientX = scaleServerX(player.x);
+  const clientY = scaleServerY(player.y);
 
   const birdLeft = clientX;
   const birdRight = clientX + birdSize;
@@ -400,10 +391,13 @@ socket.on("roomUpdated", function(data) {
   hostId = data.hostId;
   players = data.players;
 
+  setGameSpeed(data.gameSpeed || 10);
+
   const isHost = mySocketId === hostId;
 
   document.getElementById("message").textContent =
-    "Game code: " + currentGameCode + ". " +
+    "Game code: " + currentGameCode +
+    ". Speed: " + gameSpeed + " (" + gameSpeedMultiplier.toFixed(1) + "x). " +
     (isHost
       ? "You are the host. Press any movement control to start."
       : "Waiting for the host to start.");
@@ -420,6 +414,8 @@ socket.on("roomUpdated", function(data) {
 });
 
 socket.on("gameStarting", function(data) {
+  setGameSpeed(data.gameSpeed || 10);
+
   obstaclePlan = data.obstaclePlan;
   createInitialObstacles();
   startCountdown();
@@ -432,20 +428,4 @@ socket.on("playersUpdated", function(data) {
 
 socket.on("joinError", function(message) {
   document.getElementById("message").textContent = message;
-});
-
-socket.on("gameEnded", function(data) {
-  gameRunning = false;
-  countdownRunning = false;
-  gameWaitingToStart = false;
-
-  if (data.winner) {
-    document.getElementById("message").textContent =
-      data.winner.name + " wins!";
-  } else {
-    document.getElementById("message").textContent =
-      "Everyone crashed!";
-  }
-
-  drawPlayers();
 });

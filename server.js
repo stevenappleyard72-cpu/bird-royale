@@ -8,17 +8,9 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 const PORT = process.env.PORT || 3000;
-
 const rooms = {};
 
-const playerColours = [
-  "gold",
-  "dodgerblue",
-  "tomato",
-  "limegreen",
-  "violet",
-  "orange"
-];
+const playerColours = ["gold", "dodgerblue", "tomato", "limegreen", "violet", "orange"];
 
 const birdSize = 40;
 const gameWidth = 420;
@@ -41,6 +33,15 @@ app.use(express.static(__dirname));
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
+
+function clampGameSpeed(value) {
+  const speed = Number(value) || 10;
+  return Math.max(1, Math.min(99, speed));
+}
+
+function getSpeedMultiplier(room) {
+  return (room.gameSpeed || 10) / 10;
+}
 
 function randomNumber(min, max) {
   return Math.floor(min + Math.random() * (max - min + 1));
@@ -81,8 +82,7 @@ function addPlayerToRoom(socket, roomCode, playerName) {
     y: 220,
     velocityX: 0,
     velocityY: 0,
-    alive: true,
-    lastInputDirection: null
+    alive: true
   };
 
   socket.join(roomCode);
@@ -108,8 +108,8 @@ function keepPlayerInsideArena(player) {
   }
 }
 
-function applyInput(player, direction) {
-  player.lastInputDirection = direction;
+function applyInput(player, direction, room) {
+  const speedMultiplier = getSpeedMultiplier(room);
 
   if (direction === "up") {
     player.velocityY = flapStrength;
@@ -126,7 +126,7 @@ function applyInput(player, direction) {
   }
 
   if (direction === "down") {
-    player.y += diveAmount;
+    player.y += diveAmount * speedMultiplier;
     player.velocityY = 2;
 
     setTimeout(() => {
@@ -138,15 +138,16 @@ function applyInput(player, direction) {
 }
 
 function updatePlayerPhysics(room) {
+  const speedMultiplier = getSpeedMultiplier(room);
   const players = Object.values(room.players);
 
   for (const player of players) {
     if (!player.alive) continue;
 
-    player.velocityY += gravity;
-    player.y += player.velocityY;
+    player.velocityY += gravity * speedMultiplier;
+    player.y += player.velocityY * speedMultiplier;
 
-    player.x += player.velocityX;
+    player.x += player.velocityX * speedMultiplier;
     player.velocityX *= horizontalDrag;
 
     keepPlayerInsideArena(player);
@@ -240,13 +241,14 @@ function startGameLoop(roomCode) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("createGame", ({ playerName, roomCode }) => {
+  socket.on("createGame", ({ playerName, roomCode, gameSpeed }) => {
     rooms[roomCode] = {
       hostId: socket.id,
       players: {},
       started: false,
       obstaclePlan: [],
-      gameLoop: null
+      gameLoop: null,
+      gameSpeed: clampGameSpeed(gameSpeed)
     };
 
     addPlayerToRoom(socket, roomCode, playerName);
@@ -254,7 +256,8 @@ io.on("connection", (socket) => {
     io.to(roomCode).emit("roomUpdated", {
       roomCode,
       hostId: rooms[roomCode].hostId,
-      players: getPlayersInRoom(roomCode)
+      players: getPlayersInRoom(roomCode),
+      gameSpeed: rooms[roomCode].gameSpeed
     });
   });
 
@@ -274,32 +277,10 @@ io.on("connection", (socket) => {
     io.to(roomCode).emit("roomUpdated", {
       roomCode,
       hostId: rooms[roomCode].hostId,
-      players: getPlayersInRoom(roomCode)
+      players: getPlayersInRoom(roomCode),
+      gameSpeed: rooms[roomCode].gameSpeed
     });
   });
-
-socket.on("playerDied", ({ roomCode }) => {
-  const room = rooms[roomCode];
-  if (!room || !room.players[socket.id]) return;
-  room.players[socket.id].alive = false;
-  const alivePlayers = Object.values(room.players).filter(player => player.alive);
-
-  io.to(roomCode).emit("playersUpdated", {
-    players: getPlayersInRoom(roomCode)
-  });
-
-  if (alivePlayers.length <= 1) {
-    room.started = false;
-    if (room.gameLoop) {
-      clearInterval(room.gameLoop);
-      room.gameLoop = null;
-    }
-
-    io.to(roomCode).emit("gameEnded", {
-      winner: alivePlayers[0] || null
-    });
-  }
-});
 
   socket.on("requestStartGame", ({ roomCode }) => {
     const room = rooms[roomCode];
@@ -311,21 +292,15 @@ socket.on("playerDied", ({ roomCode }) => {
       return;
     }
 
-room.obstaclePlan = generateObstaclePlan(100);
+    room.started = true;
+    room.obstaclePlan = generateObstaclePlan(100);
 
-io.to(roomCode).emit("gameStarting", {
-  obstaclePlan: room.obstaclePlan
-});
+    io.to(roomCode).emit("gameStarting", {
+      obstaclePlan: room.obstaclePlan,
+      gameSpeed: room.gameSpeed
+    });
 
-// Wait for the client countdown before starting physics
-setTimeout(() => {
-  if (!rooms[roomCode]) {
-    return;
-  }
-
-  rooms[roomCode].started = true;
-  startGameLoop(roomCode);
-}, 4000);
+    startGameLoop(roomCode);
   });
 
   socket.on("playerInput", ({ roomCode, direction }) => {
@@ -337,7 +312,7 @@ setTimeout(() => {
 
     if (!room.started || !player.alive) return;
 
-    applyInput(player, direction);
+    applyInput(player, direction, room);
   });
 
   socket.on("disconnect", () => {
@@ -350,7 +325,8 @@ setTimeout(() => {
         io.to(roomCode).emit("roomUpdated", {
           roomCode,
           hostId: room.hostId,
-          players: getPlayersInRoom(roomCode)
+          players: getPlayersInRoom(roomCode),
+          gameSpeed: room.gameSpeed
         });
 
         if (Object.keys(room.players).length === 0) {
