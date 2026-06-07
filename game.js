@@ -21,6 +21,9 @@ let matchEnded = false;
 let explosions = {};  // Track explosions: { playerId: { x, y, color, startTime } }
 const explosionDuration = 600;  // milliseconds
 
+let playerStats = {};  // Track wins/losses: { playerId: { wins, matches } }
+let winnerSceneActive = false;
+
 const serverWidth = 420;
 const serverHeight = 500;
 const birdSize = 40;
@@ -88,6 +91,111 @@ function scaleY(serverY) {
 
 function scaleSize(size) {
   return size * (getGameWidth() / serverWidth);
+}
+
+function createConfetti() {
+  const confettiCount = 50;
+  const container = document.getElementById("winnerScene");
+  
+  for (let i = 0; i < confettiCount; i++) {
+    const confetti = document.createElement("div");
+    confetti.className = "confetti";
+    confetti.style.left = Math.random() * 100 + "%";
+    confetti.style.background = ["#FFD700", "#FFA500", "#FF6347", "#32CD32", "#1E90FF"][Math.floor(Math.random() * 5)];
+    confetti.style.animationDelay = Math.random() * 0.5 + "s";
+    confetti.style.animationDuration = (Math.random() * 2 + 2) + "s";
+    container.appendChild(confetti);
+  }
+}
+
+function showWinnerScene(winner) {
+  // Track stats
+  if (!playerStats[winner.id]) {
+    playerStats[winner.id] = { wins: 0, matches: 0 };
+  }
+  playerStats[winner.id].wins++;
+  
+  // Count total matches for all players
+  for (const player of players) {
+    if (!playerStats[player.id]) {
+      playerStats[player.id] = { wins: 0, matches: 0 };
+    }
+    playerStats[player.id].matches++;
+  }
+
+  const losses = playerStats[winner.id].matches - playerStats[winner.id].wins;
+
+  // Create winner scene
+  const winnerScene = document.createElement("div");
+  winnerScene.id = "winnerScene";
+  
+  // Darken arena
+  const darkOverlay = document.createElement("div");
+  darkOverlay.className = "winner-overlay";
+  winnerScene.appendChild(darkOverlay);
+
+  // Winner bird (enlarged, centered)
+  const winnerBird = document.createElement("div");
+  winnerBird.className = "winner-bird";
+  winnerBird.style.background = winner.colour;
+  winnerBird.textContent = "👑";
+  winnerScene.appendChild(winnerBird);
+
+  // Other birds arranged around winner
+  const otherPlayers = players.filter(p => p.id !== winner.id);
+  const angleStep = (2 * Math.PI) / Math.max(otherPlayers.length, 1);
+  
+  otherPlayers.forEach((player, index) => {
+    const angle = angleStep * index;
+    const distance = 150;
+    const x = 50 + (Math.cos(angle) * distance / 420) * 100;
+    const y = 50 + (Math.sin(angle) * distance / 500) * 100;
+
+    const bird = document.createElement("div");
+    bird.className = "podium-bird";
+    bird.style.background = player.colour;
+    bird.style.left = x + "%";
+    bird.style.top = y + "%";
+    bird.style.animationDelay = index * 0.1 + "s";
+    winnerScene.appendChild(bird);
+  });
+
+  // Crown emoji
+  const crown = document.createElement("div");
+  crown.className = "crown";
+  crown.textContent = "👑";
+  winnerScene.appendChild(crown);
+
+  // Champion text
+  const text = document.createElement("div");
+  text.className = "winner-text";
+  text.innerHTML = "BIRD ROYALE<br>CHAMPION<br><br>" + winner.name + "<br><br>" + 
+    playerStats[winner.id].wins + " wins - " + losses + " losses";
+  winnerScene.appendChild(text);
+
+  // Start message
+  const startMsg = document.createElement("div");
+  startMsg.className = "start-message";
+  startMsg.textContent = "Press SPACE to start a new match";
+  winnerScene.appendChild(startMsg);
+
+  document.getElementById("gameArea").appendChild(winnerScene);
+  createConfetti();
+  winnerSceneActive = true;
+}
+
+function hideWinnerScene() {
+  const winnerScene = document.getElementById("winnerScene");
+  if (winnerScene) {
+    winnerScene.remove();
+  }
+  winnerSceneActive = false;
+  
+  // Return to lobby
+  document.getElementById("lobby").style.display = "block";
+  document.getElementById("gameArea").style.display = "none";
+  document.getElementById("controls").style.display = "none";
+  document.getElementById("message").textContent = "";
 }
 
 function createExplosion(playerId, x, y, color) {
@@ -348,6 +456,13 @@ document.addEventListener("keydown", function(event) {
     return;
   }
 
+  // Space to start new match from winner scene
+  if (event.code === "Space" && winnerSceneActive) {
+    event.preventDefault();
+    hideWinnerScene();
+    return;
+  }
+
   const movementKeys = [
     "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
     "KeyW", "KeyA", "KeyS", "KeyD", "Space"
@@ -383,6 +498,9 @@ socket.on("roomUpdated", function(data) {
   matchEnded = false;
   explosions = {};
   previousPlayersState = {};
+  
+  hideWinnerScene();
+  playerStats = {};  // Reset stats for new game
 
   drawGame();
   updatePlayerList();
@@ -432,7 +550,12 @@ socket.on("roundEnded", function(data) {
 
   if (data.matchWinner) {
     matchEnded = true;
-    document.getElementById("message").textContent = data.matchWinner.name + " wins the match with " + data.matchWinner.score + " round wins!";
+    document.getElementById("message").textContent = data.matchWinner.name + " wins the match!";
+    
+    // Show winner scene after a brief delay to see the final state
+    setTimeout(() => {
+      showWinnerScene(data.matchWinner);
+    }, 1500);
   } else {
     matchEnded = false;
     gameWaitingToStart = true;

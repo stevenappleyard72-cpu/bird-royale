@@ -139,6 +139,143 @@ button {
   z-index: 100;
 }
 
+#winnerScene {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 200;
+  overflow: hidden;
+}
+
+.winner-overlay {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 201;
+}
+
+.winner-bird {
+  position: absolute;
+  top: 35%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 4px solid gold;
+  font-size: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 203;
+  animation: floatWinner 3s ease-in-out infinite;
+  box-shadow: 0 0 30px rgba(255, 215, 0, 0.8);
+}
+
+.podium-bird {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid gold;
+  z-index: 202;
+  animation: floatPodium 4s ease-in-out infinite;
+  transform: translate(-50%, -50%);
+}
+
+.crown {
+  position: absolute;
+  top: 15%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 60px;
+  z-index: 204;
+  animation: floatCrown 2s ease-in-out infinite;
+}
+
+.winner-text {
+  position: absolute;
+  top: 55%;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  color: gold;
+  font-size: 32px;
+  font-weight: bold;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.8), 0 0 20px rgba(255, 215, 0, 0.5);
+  z-index: 204;
+  line-height: 1.2;
+}
+
+.start-message {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: white;
+  font-size: 16px;
+  text-align: center;
+  z-index: 204;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.confetti {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  z-index: 202;
+  animation: fall linear forwards;
+}
+
+@keyframes floatWinner {
+  0%, 100% {
+    transform: translate(-50%, -50%);
+  }
+  50% {
+    transform: translate(-50%, -60%);
+  }
+}
+
+@keyframes floatPodium {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(0.8);
+    opacity: 0.8;
+  }
+  50% {
+    transform: translate(-50%, -60%) scale(0.9);
+    opacity: 1;
+  }
+}
+
+@keyframes floatCrown {
+  0%, 100% {
+    transform: translateX(-50%) translateY(0) rotateZ(0deg);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-10px) rotateZ(5deg);
+  }
+}
+
+@keyframes fall {
+  to {
+    transform: translateY(500px) rotateZ(720deg);
+    opacity: 0;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
 @media (max-width: 500px) {
   body {
     overflow-x: hidden;
