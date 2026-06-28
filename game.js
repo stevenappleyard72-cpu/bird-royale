@@ -199,6 +199,7 @@ function hideWinnerScene() {
   document.getElementById("lobby").style.display = "block";
   document.getElementById("gameArea").style.display = "none";
   document.getElementById("controls").style.display = "none";
+  document.getElementById("muteBar").style.display = "none";
   document.getElementById("message").textContent = "";
 }
 
@@ -285,6 +286,11 @@ function hideSpectatorOverlay() {
   if (overlay) overlay.remove();
 }
 
+function toggleMute() {
+  const muted = SoundEngine.toggleMute();
+  document.getElementById("muteBtn").textContent = muted ? "🔇 Sound" : "🔊 Sound";
+}
+
 function createGame() {
   const playerName = getPlayerName();
   currentGameCode = generateGameCode();
@@ -319,6 +325,7 @@ function joinGame() {
 
 function showGameArea() {
   document.getElementById("gameArea").style.display = "block";
+  document.getElementById("muteBar").style.display = "block";
   document.getElementById("controls").style.display = "block";
 }
 
@@ -342,8 +349,11 @@ function drawPlayers() {
     // Check if bird just died
     if (player.alive === false && previousPlayersState[player.id] !== false) {
       createExplosion(player.id, player.x, player.y, player.colour);
-      if (player.id === mySocketId && !spectatingActive) {
-        showSpectatorOverlay();
+      if (player.id === mySocketId) {
+        SoundEngine.localDeath();
+        if (!spectatingActive) showSpectatorOverlay();
+      } else {
+        SoundEngine.enemyDeath();
       }
     }
 
@@ -454,14 +464,17 @@ function startCountdown() {
   let number = 3;
   countdown.style.display = "block";
   countdown.textContent = number;
+  SoundEngine.countdownBeep(false);
 
   const timer = setInterval(function () {
     number--;
 
     if (number > 0) {
       countdown.textContent = number;
+      SoundEngine.countdownBeep(false);
     } else if (number === 0) {
       countdown.textContent = "GO!";
+      SoundEngine.countdownBeep(true);
     } else {
       clearInterval(timer);
       countdown.style.display = "none";
@@ -488,6 +501,7 @@ function handleMove(direction) {
     return;
   }
 
+  SoundEngine.flap();
   socket.emit("playerInput", {
     roomCode: currentGameCode,
     direction
@@ -606,6 +620,7 @@ socket.on("roundEnded", function (data) {
   if (data.matchWinner) {
     matchEnded = true;
     document.getElementById("message").textContent = data.matchWinner.name + " wins the match!";
+    SoundEngine.matchWin();
 
     // Show winner scene after a brief delay to see the final state
     setTimeout(() => {
@@ -618,6 +633,7 @@ socket.on("roundEnded", function (data) {
     let message = "";
 
     if (data.roundWinner) {
+      SoundEngine.roundWin();
       message = data.roundWinner.name + " wins the round! ⭐\n";
 
       // Build scores list with star next to round winner

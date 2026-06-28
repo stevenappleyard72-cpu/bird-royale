@@ -38,6 +38,10 @@
       <div id="countdown"></div>
     </div>
 
+    <div id="muteBar">
+      <button id="muteBtn" onclick="toggleMute()">🔊 Sound</button>
+    </div>
+
     <div id="controls">
       <div class="control-row">
         <button class="control-button control-left" onclick="handleMove('left')">↖</button>
@@ -50,6 +54,7 @@
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="sounds.js"></script>
     <script src="game.js"></script>
   </body>
 </html>
