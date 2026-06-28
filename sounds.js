@@ -149,6 +149,27 @@ const SoundEngine = (() => {
         tone(c, "triangle", freq, 0.12, 0.01, 0.4, t + delay);
         metalRing(c, freq, 0.05, 0.35, t + delay);
       });
+    },
+
+    // Bright ascending chime on shield pickup
+    shieldPickup() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      [880, 1108, 1397, 1760].forEach((freq, i) => {
+        tone(c, "sine", freq, 0.08, 0.008, 0.22, t + i * 0.055);
+        metalRing(c, freq, 0.03, 0.18, t + i * 0.055);
+      });
+    },
+
+    // Metallic clang when shield absorbs a hit
+    shieldBlock() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      metalRing(c, 440, 0.24, 0.4, t);
+      tone(c, "square", 220, 0.1, 0.002, 0.18, t, 440);
+      noiseBurst(c, 0.14, 0.1, 900, t);
     }
   };
 })();

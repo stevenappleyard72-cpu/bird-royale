@@ -299,6 +299,42 @@ hr {
   z-index: 100;
 }
 
+.shield-pickup {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #aef, #08f 60%, #005);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 10px 4px rgba(0, 170, 255, 0.75);
+  pointer-events: none;
+  box-sizing: border-box;
+  animation: shieldPickupPulse 1s ease-in-out infinite;
+  z-index: 90;
+}
+
+.shield-ring {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  right: -6px;
+  bottom: -6px;
+  border-radius: 50%;
+  border: 3px solid rgba(0, 200, 255, 0.95);
+  box-shadow: 0 0 12px 4px rgba(0, 170, 255, 0.65), inset 0 0 8px rgba(0, 200, 255, 0.3);
+  pointer-events: none;
+  box-sizing: content-box;
+  animation: shieldRingPulse 0.7s ease-in-out infinite;
+}
+
+@keyframes shieldPickupPulse {
+  0%, 100% { box-shadow: 0 0 10px 4px rgba(0, 170, 255, 0.75); transform: scale(1); }
+  50%       { box-shadow: 0 0 18px 7px rgba(0, 200, 255, 0.9);  transform: scale(1.1); }
+}
+
+@keyframes shieldRingPulse {
+  0%, 100% { opacity: 1;   box-shadow: 0 0 12px 4px rgba(0, 170, 255, 0.65), inset 0 0 8px rgba(0, 200, 255, 0.3); }
+  50%       { opacity: 0.6; box-shadow: 0 0 20px 8px rgba(0, 200, 255, 0.9),  inset 0 0 12px rgba(0, 200, 255, 0.5); }
+}
+
 #spectatorOverlay {
   position: absolute;
   bottom: 0;

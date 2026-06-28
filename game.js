@@ -26,6 +26,7 @@ const explosionDuration = 600;  // milliseconds
 let playerStats = {};  // Track wins/losses: { playerId: { wins, matches } }
 let winnerSceneActive = false;
 let spectatingActive = false;
+let pickups = [];
 
 const serverWidth = 420;
 const serverHeight = 500;
@@ -337,6 +338,7 @@ function updateLocalState(data) {
   obstaclesPassed = data.obstaclesPassed || 0;
   setGameSpeed(data.gameSpeed || gameSpeed);
   targetScore = data.targetScore || targetScore;
+  pickups = data.pickups || [];
 }
 
 function drawPlayers() {
@@ -374,6 +376,12 @@ function drawPlayers() {
     const name = document.createElement("div");
     name.className = "player-name";
     name.textContent = player.name;
+
+    if (player.shielded) {
+      const ring = document.createElement("div");
+      ring.className = "shield-ring";
+      bird.appendChild(ring);
+    }
 
     bird.appendChild(name);
     container.appendChild(bird);
@@ -413,9 +421,24 @@ function drawObstacles() {
   }
 }
 
+function drawPickups() {
+  const container = document.getElementById("playersContainer");
+  for (const pickup of pickups) {
+    if (pickup.type !== "shield") continue;
+    const el = document.createElement("div");
+    el.className = "shield-pickup";
+    el.style.left = scaleX(pickup.x) + "px";
+    el.style.top = scaleY(pickup.y) + "px";
+    el.style.width = scaleSize(pickup.size) + "px";
+    el.style.height = scaleSize(pickup.size) + "px";
+    container.appendChild(el);
+  }
+}
+
 function drawGame() {
   showGameArea();
   drawPlayers();
+  drawPickups();
   drawObstacles();
   if (spectatingActive) {
     updateSpectatorOverlay();
@@ -665,4 +688,12 @@ socket.on("roundEnded", function (data) {
 
 socket.on("joinError", function (message) {
   document.getElementById("message").textContent = message;
+});
+
+socket.on("pickupCollected", function () {
+  SoundEngine.shieldPickup();
+});
+
+socket.on("shieldBlock", function () {
+  SoundEngine.shieldBlock();
 });

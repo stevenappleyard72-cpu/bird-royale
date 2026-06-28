@@ -34,6 +34,11 @@ const targetObstacleCount = 4;
 const victimKnockback = 45;
 const attackerRecoil = 15;
 
+const shieldDuration = 6000;
+const shieldPickupSize = 28;
+const maxPickups = 1;
+const pickupSpawnInterval = 7000;
+
 app.use(express.static(__dirname));
 
 app.get("/", (req, res) => {
@@ -101,9 +106,13 @@ function getGameState(roomCode) {
     started: room.started,
     gameSpeed: room.gameSpeed,
     targetScore: room.targetScore,
-    players: getPlayersInRoom(roomCode),
+    players: getPlayersInRoom(roomCode).map(p => {
+      const now = Date.now();
+      return { ...p, shielded: p.shieldExpiry !== null && now < p.shieldExpiry };
+    }),
     obstacles: room.obstacles,
-    obstaclesPassed: room.obstaclesPassed
+    obstaclesPassed: room.obstaclesPassed,
+    pickups: room.pickups || []
   };
 }
 
@@ -129,7 +138,8 @@ function addPlayerToRoom(socket, roomCode, playerName) {
     velocityY: 0,
     diveBurst: 0,
     alive: true,
-    score: 0
+    score: 0,
+    shieldExpiry: null
   };
 
   socket.join(roomCode);
@@ -145,6 +155,7 @@ function resetPlayersForRound(room) {
     players[i].velocityY = 0;
     players[i].diveBurst = 0;
     players[i].alive = true;
+    players[i].shieldExpiry = null;
   }
 }
 
@@ -276,8 +287,9 @@ function applyObstacleDeaths(room) {
   }
 }
 
-function applyPlayerCollisions(room) {
+function applyPlayerCollisions(room, roomCode) {
   const players = Object.values(room.players).filter(player => player.alive);
+  const now = Date.now();
 
   for (let i = 0; i < players.length; i++) {
     for (let j = i + 1; j < players.length; j++) {
@@ -312,20 +324,28 @@ function applyPlayerCollisions(room) {
           directionY = -normalY;
         }
 
-        victim.x += directionX * victimKnockback;
-        victim.y += directionY * victimKnockback;
+        const victimShielded = victim.shieldExpiry !== null && now < victim.shieldExpiry;
+        const attackerShielded = attacker.shieldExpiry !== null && now < attacker.shieldExpiry;
 
-        attacker.x -= directionX * attackerRecoil;
-        attacker.y -= directionY * attackerRecoil;
+        if (victimShielded || attackerShielded) {
+          io.to(roomCode).emit("shieldBlock", {});
+        }
 
-        victim.velocityX += directionX * 5;
-        victim.velocityY += directionY * 5;
+        if (!victimShielded) {
+          victim.x += directionX * victimKnockback;
+          victim.y += directionY * victimKnockback;
+          victim.velocityX += directionX * 5;
+          victim.velocityY += directionY * 5;
+          keepPlayerInsideArena(victim);
+        }
 
-        attacker.velocityX -= directionX * 2;
-        attacker.velocityY -= directionY * 2;
-
-        keepPlayerInsideArena(victim);
-        keepPlayerInsideArena(attacker);
+        if (!attackerShielded) {
+          attacker.x -= directionX * attackerRecoil;
+          attacker.y -= directionY * attackerRecoil;
+          attacker.velocityX -= directionX * 2;
+          attacker.velocityY -= directionY * 2;
+          keepPlayerInsideArena(attacker);
+        }
       }
     }
   }
@@ -333,6 +353,67 @@ function applyPlayerCollisions(room) {
 
 function getAlivePlayers(room) {
   return Object.values(room.players).filter(player => player.alive);
+}
+
+function pickupOverlapsPlayer(player, pickup) {
+  return (
+    player.x < pickup.x + pickup.size &&
+    player.x + birdSize > pickup.x &&
+    player.y < pickup.y + pickup.size &&
+    player.y + birdSize > pickup.y
+  );
+}
+
+function createShieldPickup(room) {
+  const mid = room.obstacles[Math.floor(room.obstacles.length / 2)];
+  let y;
+  if (mid) {
+    const gapTop = mid.topHeight + shieldPickupSize;
+    const gapBottom = gameHeight - mid.bottomHeight - shieldPickupSize * 2;
+    y = gapTop + Math.random() * Math.max(0, gapBottom - gapTop);
+  } else {
+    y = gameHeight / 2 - shieldPickupSize / 2;
+  }
+  return {
+    id: Math.random().toString(36).slice(2),
+    x: gameWidth,
+    y,
+    size: shieldPickupSize,
+    type: "shield"
+  };
+}
+
+function updatePickups(room, roomCode) {
+  const speedMultiplier = getSpeedMultiplier(room);
+  const now = Date.now();
+
+  for (const pickup of room.pickups) {
+    pickup.x -= obstacleSpeed * speedMultiplier;
+  }
+
+  room.pickups = room.pickups.filter(p => p.x + p.size > 0);
+
+  const alivePlayers = Object.values(room.players).filter(p => p.alive);
+  for (const player of alivePlayers) {
+    for (let i = room.pickups.length - 1; i >= 0; i--) {
+      if (pickupOverlapsPlayer(player, room.pickups[i])) {
+        player.shieldExpiry = now + shieldDuration;
+        room.pickups.splice(i, 1);
+        io.to(roomCode).emit("pickupCollected", { playerId: player.id, type: "shield" });
+      }
+    }
+  }
+
+  for (const player of Object.values(room.players)) {
+    if (player.shieldExpiry !== null && now > player.shieldExpiry) {
+      player.shieldExpiry = null;
+    }
+  }
+
+  if (room.pickups.length < maxPickups && now - room.lastPickupSpawn > pickupSpawnInterval) {
+    room.pickups.push(createShieldPickup(room));
+    room.lastPickupSpawn = now;
+  }
 }
 
 function endRound(roomCode, winner) {
@@ -401,8 +482,9 @@ function startGameLoop(roomCode) {
     }
 
     updatePlayerPhysics(activeRoom);
-    applyPlayerCollisions(activeRoom);
+    applyPlayerCollisions(activeRoom, roomCode);
     updateObstacles(activeRoom);
+    updatePickups(activeRoom, roomCode);
     applyObstacleDeaths(activeRoom);
     broadcastGameState(roomCode);
     checkForRoundEnd(roomCode);
@@ -419,7 +501,9 @@ io.on("connection", (socket) => {
       obstaclesPassed: 0,
       gameLoop: null,
       gameSpeed: clampGameSpeed(gameSpeed),
-      targetScore: clampTargetScore(targetScore)
+      targetScore: clampTargetScore(targetScore),
+      pickups: [],
+      lastPickupSpawn: 0
     };
 
     addPlayerToRoom(socket, roomCode, playerName);
