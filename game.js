@@ -25,6 +25,7 @@ const explosionDuration = 600;  // milliseconds
 
 let playerStats = {};  // Track wins/losses: { playerId: { wins, matches } }
 let winnerSceneActive = false;
+let spectatingActive = false;
 
 const serverWidth = 420;
 const serverHeight = 500;
@@ -246,6 +247,44 @@ function drawExplosions() {
   }
 }
 
+function showSpectatorOverlay() {
+  spectatingActive = true;
+
+  let overlay = document.getElementById("spectatorOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "spectatorOverlay";
+    document.getElementById("gameArea").appendChild(overlay);
+  }
+
+  updateSpectatorOverlay();
+}
+
+function updateSpectatorOverlay() {
+  const overlay = document.getElementById("spectatorOverlay");
+  if (!overlay) return;
+
+  const scoresHtml = players.map(function (player) {
+    const isMe = player.id === mySocketId;
+    const statusIcon = player.alive ? "🐦" : "💀";
+    const meClass = isMe ? " spectator-me" : "";
+    return "<div class='spectator-score-row" + meClass + "' style='color:" + player.colour + "'>" +
+      statusIcon + " " + player.name + " &mdash; " + player.score + "/" + targetScore +
+      "</div>";
+  }).join("");
+
+  overlay.innerHTML =
+    "<div class='spectator-title'>YOU'RE OUT!</div>" +
+    "<div class='spectator-watching'>Spectating...</div>" +
+    "<div class='spectator-scores'>" + scoresHtml + "</div>";
+}
+
+function hideSpectatorOverlay() {
+  spectatingActive = false;
+  const overlay = document.getElementById("spectatorOverlay");
+  if (overlay) overlay.remove();
+}
+
 function createGame() {
   const playerName = getPlayerName();
   currentGameCode = generateGameCode();
@@ -303,6 +342,9 @@ function drawPlayers() {
     // Check if bird just died
     if (player.alive === false && previousPlayersState[player.id] !== false) {
       createExplosion(player.id, player.x, player.y, player.colour);
+      if (player.id === mySocketId && !spectatingActive) {
+        showSpectatorOverlay();
+      }
     }
 
     // Only draw alive birds
@@ -365,6 +407,9 @@ function drawGame() {
   showGameArea();
   drawPlayers();
   drawObstacles();
+  if (spectatingActive) {
+    updateSpectatorOverlay();
+  }
 }
 
 function updatePlayerList() {
@@ -508,6 +553,7 @@ socket.on("roomUpdated", function (data) {
   }
 
   winnerSceneActive = false;
+  spectatingActive = false;
   playerStats = {};
   drawGame();
   updatePlayerList();
@@ -520,6 +566,7 @@ socket.on("gameStarting", function (data) {
   matchEnded = false;
   explosions = {};  // Clear explosions when new round starts
   previousPlayersState = {};
+  hideSpectatorOverlay();
 
   drawGame();
   updatePlayerList();
@@ -534,6 +581,7 @@ socket.on("gameStarted", function (data) {
   gameWaitingToStart = false;
   countdownRunning = false;
   gameRunning = true;
+  hideSpectatorOverlay();
 
   document.getElementById("countdown").style.display = "none";
   document.getElementById("message").textContent = "Battle started!";
