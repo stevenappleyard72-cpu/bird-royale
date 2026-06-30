@@ -141,6 +141,25 @@ function drainWaitingQueue(roomCode) {
   }
 }
 
+// Drain waiting queue into a lobby that hasn't started yet (as real players)
+function drainWaitingQueueToLobby(roomCode) {
+  const room = rooms[roomCode];
+  if (!room || room.started) return;
+
+  for (const [socketId, entry] of Object.entries(waitingQueue)) {
+    const playerCount = Object.keys(room.players).filter(id => id !== BOT_ID).length;
+    if (playerCount >= MAX_PLAYERS) break;
+
+    const sock = io.sockets.sockets.get(socketId);
+    if (!sock) { delete waitingQueue[socketId]; continue; }
+
+    addPlayerToRoom(sock, roomCode, entry.name);
+    delete waitingQueue[socketId];
+  }
+
+  io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
+}
+
 function validateAndRegisterName(socket, playerName) {
   const trimmed = (playerName || "").trim().slice(0, MAX_NAME_LENGTH);
   if (trimmed.length < 2) return { error: "Name must be at least 2 characters." };
@@ -752,6 +771,7 @@ io.on("connection", (socket) => {
     };
 
     addPlayerToRoom(socket, roomCode, nameCheck.name);
+    drainWaitingQueueToLobby(roomCode);
 
     io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
   });
@@ -865,7 +885,21 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // Find a running room that has capacity for at least one more person
+    // Priority 1: a lobby that hasn't started yet and has room for another player
+    const lobbyRoom = Object.entries(rooms).find(([, room]) => {
+      if (room.started) return false;
+      const playerCount = Object.keys(room.players).filter(id => id !== BOT_ID).length;
+      return playerCount < MAX_PLAYERS;
+    });
+
+    if (lobbyRoom) {
+      const [roomCode] = lobbyRoom;
+      addPlayerToRoom(socket, roomCode, nameCheck.name);
+      io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
+      return;
+    }
+
+    // Priority 2: a running room that has spectator capacity
     const openRoom = Object.entries(rooms).find(([, room]) => {
       if (!room.started) return false;
       const realPlayers = Object.keys(room.players).filter(id => id !== BOT_ID).length;

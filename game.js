@@ -665,6 +665,13 @@ document.addEventListener("keydown", function (event) {
 });
 
 socket.on("roomUpdated", function (data) {
+  // Reset quick-join UI if we were queued and just got placed into a lobby
+  if (quickJoinSearching) {
+    quickJoinSearching = false;
+    const btn = document.getElementById("quickJoinBtn");
+    if (btn) { btn.textContent = "Quick Join a Running Game"; btn.onclick = quickJoin; }
+  }
+
   updateLocalState(data);
 
   gameWaitingToStart = true;
