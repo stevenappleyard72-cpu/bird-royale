@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20">
+  <!-- Earth -->
+  <rect width="40" height="20" fill="#7B4F2E"/>
+  <!-- Darker topsoil -->
+  <rect width="40" height="9" fill="#5C3A1E"/>
+  <!-- Grass blades — x positions chosen so left/right edges blend on repeat -->
+  <path d="M1,9  C0,5  1,1  2,0  C2,4  3,9"  fill="#228B22" stroke="#1A6B1A" stroke-width="0.5"/>
+  <path d="M6,9  C5,4  7,-1  8,1  C7,5  8,9"  fill="#2DB82D" stroke="#1A6B1A" stroke-width="0.5"/>
+  <path d="M12,9 C11,3 13,-1 14,1 C13,5 14,9" fill="#228B22" stroke="#1A6B1A" stroke-width="0.5"/>
+  <path d="M17,9 C16,2 18,-2 19,0 C18,4 19,9" fill="#32CD32" stroke="#1A6B1A" stroke-width="0.5"/>
+  <path d="M22,9 C21,4 22,0  23,-1 C23,3 24,9" fill="#228B22" stroke="#1A6B1A" stroke-width="0.5"/>
+  <path d="M27,9 C26,3 28,-1 29,1 C28,5 29,9" fill="#2DB82D" stroke="#1A6B1A" stroke-width="0.5"/>
+  <path d="M33,9 C32,3 34,0  35,2 C34,5 35,9" fill="#228B22" stroke="#1A6B1A" stroke-width="0.5"/>
+  <path d="M38,9 C37,4 38,0  39,-1 C39,3 40,9" fill="#32CD32" stroke="#1A6B1A" stroke-width="0.5"/>
+  <!-- Pebbles/texture in soil -->
+  <circle cx="10" cy="13" r="2"   fill="#9C7A5A" opacity="0.6"/>
+  <circle cx="24" cy="15" r="1.5" fill="#9C7A5A" opacity="0.5"/>
+  <circle cx="36" cy="12" r="1.5" fill="#888"    opacity="0.4"/>
+</svg>

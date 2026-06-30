@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 16">
+  <!-- Ceiling stone — full width for seamless repeat -->
+  <rect width="40" height="7" fill="#484848"/>
+  <rect width="40" height="2" fill="#333"/>
+  <!-- Horizontal vine stem — starts and ends at x=0/40 for seamless tile -->
+  <path d="M0,7 C5,6 12,8 20,7 C28,6 34,8 40,7" stroke="#4A7C3F" stroke-width="2.5" fill="none"/>
+  <!-- Hanging leaves -->
+  <ellipse cx="5"  cy="11" rx="5"   ry="3"   fill="#32CD32" stroke="#111" stroke-width="0.8" transform="rotate(10 5 11)"/>
+  <ellipse cx="14" cy="13" rx="4.5" ry="2.8" fill="#2DB82D" stroke="#111" stroke-width="0.7" transform="rotate(-15 14 13)"/>
+  <ellipse cx="23" cy="12" rx="5"   ry="3"   fill="#32CD32" stroke="#111" stroke-width="0.8" transform="rotate(5 23 12)"/>
+  <ellipse cx="32" cy="14" rx="4"   ry="2.5" fill="#228B22" stroke="#111" stroke-width="0.7" transform="rotate(-10 32 14)"/>
+  <!-- Short pendant tendrils -->
+  <path d="M9,8  C9,11  8,14"  stroke="#3A6B30" stroke-width="1.5" fill="none"/>
+  <path d="M28,8 C28,12 29,15" stroke="#3A6B30" stroke-width="1.5" fill="none"/>
+</svg>

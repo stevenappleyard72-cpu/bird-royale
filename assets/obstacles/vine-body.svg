@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+  <!-- Stone base -->
+  <rect width="40" height="40" fill="#525252"/>
+  <!-- Edge shading -->
+  <rect x="0"  y="0" width="4" height="40" fill="#404040"/>
+  <rect x="36" y="0" width="4" height="40" fill="#646464"/>
+  <!-- Vertical stone grain — tiles seamlessly -->
+  <line x1="9"  y1="0" x2="9"  y2="40" stroke="#333" stroke-width="1.5" opacity="0.6"/>
+  <line x1="17" y1="0" x2="17" y2="40" stroke="#333" stroke-width="1"   opacity="0.4"/>
+  <line x1="25" y1="0" x2="25" y2="40" stroke="#333" stroke-width="1.5" opacity="0.5"/>
+  <line x1="33" y1="0" x2="33" y2="40" stroke="#333" stroke-width="1"   opacity="0.4"/>
+  <!-- Creeping vine stems -->
+  <path d="M3,0 C4,10 2,20 3,30 C2,36 3,40"  stroke="#3A6B30" stroke-width="2.2" fill="none"/>
+  <path d="M37,0 C36,12 38,22 37,32 C38,38 37,40" stroke="#4A7C3F" stroke-width="2" fill="none"/>
+  <!-- Occasional leaf -->
+  <ellipse cx="4"  cy="22" rx="4" ry="2.5" fill="#32CD32" stroke="#111" stroke-width="0.6" transform="rotate(-25 4 22)"/>
+  <ellipse cx="36" cy="14" rx="3.5" ry="2.2" fill="#2DB82D" stroke="#111" stroke-width="0.6" transform="rotate(20 36 14)"/>
+</svg>

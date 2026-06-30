@@ -409,17 +409,37 @@ function drawObstacles() {
   for (let i = 0; i < obstacles.length; i++) {
     const obstacle = obstacles[i];
 
+    // Top obstacle — stone body with hanging vine tips
     const topElement = document.createElement("div");
     topElement.className = "obstacle top-obstacle";
     topElement.style.left = scaleX(obstacle.x) + "px";
     topElement.style.width = scaleX(obstacle.width) + "px";
     topElement.style.height = scaleY(obstacle.topHeight) + "px";
 
+    const vineBody = document.createElement("div");
+    vineBody.className = "obstacle-vine-body";
+
+    const vineTip = document.createElement("div");
+    vineTip.className = "obstacle-vine-tip";
+
+    topElement.appendChild(vineBody);
+    topElement.appendChild(vineTip);
+
+    // Bottom obstacle — bark trunk body with tree canopy cap
     const bottomElement = document.createElement("div");
     bottomElement.className = "obstacle bottom-obstacle";
     bottomElement.style.left = scaleX(obstacle.x) + "px";
     bottomElement.style.width = scaleX(obstacle.width) + "px";
     bottomElement.style.height = scaleY(obstacle.bottomHeight) + "px";
+
+    const trunk = document.createElement("div");
+    trunk.className = "obstacle-trunk";
+
+    const treetop = document.createElement("div");
+    treetop.className = "obstacle-treetop";
+
+    bottomElement.appendChild(trunk);
+    bottomElement.appendChild(treetop);
 
     container.appendChild(topElement);
     container.appendChild(bottomElement);

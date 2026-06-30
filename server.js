@@ -42,6 +42,9 @@ const pickupSpawnInterval = 7000;
 const BOT_ID = "__bot__";
 const BOT_NAME = "Bot";
 
+const grassDepth = 20;
+const vineDepth = 16;
+
 app.use(express.static(__dirname));
 
 app.get("/", (req, res) => {
@@ -344,7 +347,7 @@ function updateObstacles(room) {
 }
 
 function playerHitsBoundary(player) {
-  return player.y <= 0 || player.y >= gameHeight - birdSize;
+  return player.y < vineDepth || player.y > gameHeight - birdSize - grassDepth;
 }
 
 function playerHitsObstacle(player, obstacle) {
