@@ -279,10 +279,19 @@ hr {
 .player-bird {
   width: 40px;
   height: 40px;
-  border-radius: 50%;
   position: absolute;
-  border: 3px solid black;
   box-sizing: border-box;
+}
+
+.player-sprite {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
 }
 
 .player-name {

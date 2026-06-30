@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+  <!-- Wing (behind body) -->
+  <ellipse cx="14" cy="28" rx="9" ry="3.5" fill="#B8960C" stroke="#000" stroke-width="1" transform="rotate(-10 14 28)"/>
+  <!-- Body -->
+  <ellipse cx="18" cy="21" rx="14" ry="13" fill="#FFD700" stroke="#000" stroke-width="1.5"/>
+  <!-- Belly -->
+  <ellipse cx="23" cy="25" rx="7" ry="6" fill="#FFFACD"/>
+  <!-- Eye -->
+  <circle cx="24" cy="15" r="6" fill="white" stroke="#000" stroke-width="0.8"/>
+  <circle cx="25.5" cy="15" r="3" fill="#111"/>
+  <circle cx="27" cy="13.5" r="1.3" fill="white"/>
+  <!-- Eyebrow -->
+  <ellipse cx="22.5" cy="9" rx="5.5" ry="1.8" fill="#222" transform="rotate(-15 22.5 9)"/>
+  <!-- Beak -->
+  <polygon points="31,17 38,21 31,25" fill="#FF8C00" stroke="#000" stroke-width="0.8" stroke-linejoin="round"/>
+  <line x1="31.5" y1="21" x2="37.5" y2="21" stroke="#BB4400" stroke-width="0.8"/>
+</svg>

@@ -370,8 +370,12 @@ function drawPlayers() {
     bird.style.top = scaleY(player.y) + "px";
     bird.style.width = scaleSize(birdSize) + "px";
     bird.style.height = scaleSize(birdSize) + "px";
-    bird.style.background = player.colour;
-    bird.style.opacity = "1";
+
+    const sprite = document.createElement("div");
+    sprite.className = "player-sprite";
+    sprite.style.backgroundImage = "url('/assets/birds/" + player.colour + ".svg')";
+    const tilt = Math.max(-30, Math.min(45, player.velocityY * 4));
+    sprite.style.transform = "rotate(" + tilt + "deg)";
 
     const name = document.createElement("div");
     name.className = "player-name";
@@ -383,6 +387,7 @@ function drawPlayers() {
       bird.appendChild(ring);
     }
 
+    bird.appendChild(sprite);
     bird.appendChild(name);
     container.appendChild(bird);
   }
