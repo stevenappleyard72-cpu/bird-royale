@@ -544,6 +544,20 @@ hr {
   white-space: nowrap;
 }
 
+#quickJoinBtn {
+  width: 90%;
+  background: linear-gradient(135deg, #32CD32 0%, #228B22 100%);
+  color: white;
+  border-color: #1A6B1A;
+  box-shadow: 0 4px 12px rgba(50, 205, 50, 0.35);
+}
+
+#quickJoinBtn:hover {
+  background: linear-gradient(135deg, #228B22 0%, #1A6B1A 100%);
+  box-shadow: 0 6px 18px rgba(50, 205, 50, 0.5);
+  transform: translateY(-2px);
+}
+
 #rematchBtn {
   position: absolute;
   bottom: 12px;

@@ -12,6 +12,7 @@ const PORT = process.env.PORT || 3000;
 const rooms = {};
 
 const playerColours = ["gold", "dodgerblue", "tomato", "limegreen", "violet", "orange"];
+const MAX_PLAYERS = playerColours.length;
 
 const birdSize = 40;
 const gameWidth = 420;
@@ -833,6 +834,36 @@ io.on("connection", (socket) => {
 
   socket.on("requestLeaderboard", () => {
     socket.emit("leaderboardUpdate", getLeaderboardData());
+  });
+
+  socket.on("findOpenGame", ({ playerName }) => {
+    const nameCheck = validateAndRegisterName(socket, playerName);
+    if (nameCheck.error) {
+      socket.emit("joinError", nameCheck.error);
+      return;
+    }
+
+    // Find a running room that has capacity for at least one more person
+    const openRoom = Object.entries(rooms).find(([, room]) => {
+      if (!room.started) return false;
+      const realPlayers = Object.keys(room.players).filter(id => id !== BOT_ID).length;
+      const totalOccupants = realPlayers + Object.keys(room.spectators || {}).length;
+      return totalOccupants < MAX_PLAYERS;
+    });
+
+    if (!openRoom) {
+      // Release the name we just registered since they won't be joining
+      for (const [key, id] of Object.entries(activeNames)) {
+        if (id === socket.id) { delete activeNames[key]; break; }
+      }
+      socket.emit("joinError", "No open games right now. Create one or try again soon!");
+      return;
+    }
+
+    const [roomCode, room] = openRoom;
+    room.spectators[socket.id] = { id: socket.id, name: nameCheck.name };
+    socket.join(roomCode);
+    socket.emit("joinedAsSpectator", getGameState(roomCode));
   });
 
   socket.on("playerInput", ({ roomCode, direction }) => {

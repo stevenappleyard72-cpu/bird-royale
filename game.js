@@ -312,6 +312,11 @@ function toggleMute() {
   document.getElementById("muteBtn").textContent = muted ? "🔇 Sound" : "🔊 Sound";
 }
 
+function quickJoin() {
+  const playerName = getPlayerName();
+  socket.emit("findOpenGame", { playerName });
+}
+
 function createGame() {
   const playerName = getPlayerName();
   currentGameCode = generateGameCode();
