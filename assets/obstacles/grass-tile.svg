@@ -1,19 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20">
-  <!-- Earth -->
-  <rect width="40" height="20" fill="#7B4F2E"/>
-  <!-- Darker topsoil -->
-  <rect width="40" height="9" fill="#5C3A1E"/>
-  <!-- Grass blades — x positions chosen so left/right edges blend on repeat -->
-  <path d="M1,9  C0,5  1,1  2,0  C2,4  3,9"  fill="#228B22" stroke="#1A6B1A" stroke-width="0.5"/>
-  <path d="M6,9  C5,4  7,-1  8,1  C7,5  8,9"  fill="#2DB82D" stroke="#1A6B1A" stroke-width="0.5"/>
-  <path d="M12,9 C11,3 13,-1 14,1 C13,5 14,9" fill="#228B22" stroke="#1A6B1A" stroke-width="0.5"/>
-  <path d="M17,9 C16,2 18,-2 19,0 C18,4 19,9" fill="#32CD32" stroke="#1A6B1A" stroke-width="0.5"/>
-  <path d="M22,9 C21,4 22,0  23,-1 C23,3 24,9" fill="#228B22" stroke="#1A6B1A" stroke-width="0.5"/>
-  <path d="M27,9 C26,3 28,-1 29,1 C28,5 29,9" fill="#2DB82D" stroke="#1A6B1A" stroke-width="0.5"/>
-  <path d="M33,9 C32,3 34,0  35,2 C34,5 35,9" fill="#228B22" stroke="#1A6B1A" stroke-width="0.5"/>
-  <path d="M38,9 C37,4 38,0  39,-1 C39,3 40,9" fill="#32CD32" stroke="#1A6B1A" stroke-width="0.5"/>
-  <!-- Pebbles/texture in soil -->
-  <circle cx="10" cy="13" r="2"   fill="#9C7A5A" opacity="0.6"/>
-  <circle cx="24" cy="15" r="1.5" fill="#9C7A5A" opacity="0.5"/>
-  <circle cx="36" cy="12" r="1.5" fill="#888"    opacity="0.4"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 28">
+  <!-- Transparent background - grass only -->
+
+  <!-- Back layer: wide rounded clumps for depth -->
+  <ellipse cx="5"  cy="26" rx="7"  ry="6" fill="#1A7A1A"/>
+  <ellipse cx="16" cy="27" rx="8"  ry="7" fill="#1A7A1A"/>
+  <ellipse cx="27" cy="26" rx="7"  ry="6" fill="#1A7A1A"/>
+  <ellipse cx="38" cy="27" rx="7"  ry="6" fill="#1A7A1A"/>
+
+  <!-- Mid layer: lighter clumps -->
+  <ellipse cx="0"  cy="24" rx="6"  ry="5.5" fill="#228B22"/>
+  <ellipse cx="11" cy="23" rx="7.5" ry="6.5" fill="#228B22"/>
+  <ellipse cx="22" cy="24" rx="7"  ry="6"   fill="#228B22"/>
+  <ellipse cx="33" cy="23" rx="7.5" ry="6.5" fill="#228B22"/>
+  <ellipse cx="40" cy="24" rx="5"  ry="5"   fill="#228B22"/>
+
+  <!-- Front layer: brightest clumps -->
+  <ellipse cx="5"  cy="21" rx="6.5" ry="6" fill="#2DB82D"/>
+  <ellipse cx="17" cy="20" rx="8"   ry="7" fill="#32CD32"/>
+  <ellipse cx="28" cy="21" rx="7.5" ry="6.5" fill="#2DB82D"/>
+  <ellipse cx="39" cy="20" rx="6"   ry="6" fill="#32CD32"/>
+
+  <!-- Individual blade layer: tall pointed blades poking above clumps -->
+  <path d="M2,20  C1,13 2,7  3,3   C4,7  4,14 4,20"  fill="#32CD32" stroke="#1A6B1A" stroke-width="0.4"/>
+  <path d="M7,19  C6,11 8,5  9,1   C10,5 9,12 10,19" fill="#39D939" stroke="#1A6B1A" stroke-width="0.4"/>
+  <path d="M13,20 C12,12 14,6 15,2  C16,6 15,13 16,20" fill="#32CD32" stroke="#1A6B1A" stroke-width="0.4"/>
+  <path d="M19,19 C18,10 20,4 21,0  C22,4 21,11 22,19" fill="#2DB82D" stroke="#1A6B1A" stroke-width="0.4"/>
+  <path d="M24,20 C23,12 25,6 26,2  C27,6 26,13 27,20" fill="#32CD32" stroke="#1A6B1A" stroke-width="0.4"/>
+  <path d="M30,19 C29,11 31,5 32,1  C33,5 32,12 33,19" fill="#39D939" stroke="#1A6B1A" stroke-width="0.4"/>
+  <path d="M35,20 C34,13 36,7 37,3  C38,7 37,14 38,20" fill="#32CD32" stroke="#1A6B1A" stroke-width="0.4"/>
+  <path d="M39,19 C38,11 40,5 40,2  C40,6 40,12 40,19" fill="#2DB82D" stroke="#1A6B1A" stroke-width="0.4"/>
 </svg>

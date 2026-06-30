@@ -42,8 +42,8 @@ const pickupSpawnInterval = 7000;
 const BOT_ID = "__bot__";
 const BOT_NAME = "Bot";
 
-const grassDepth = 20;
-const vineDepth = 16;
+const grassDepth = 28;
+const vineDepth = 24;
 
 app.use(express.static(__dirname));
 
@@ -111,8 +111,8 @@ function updateBotAI(room) {
       vY += gravity * speedMultiplier;
       y  += vY   * speedMultiplier;
       // Clamp at arena walls so simulation doesn't fly off to infinity
-      if (y < 0)                  { y = 0;                  vY = 0; }
-      if (y > gameHeight - birdSize) { y = gameHeight - birdSize; vY = 0; }
+      if (y < vineDepth)                        { y = vineDepth;                        vY = 0; }
+      if (y > gameHeight - birdSize - grassDepth) { y = gameHeight - birdSize - grassDepth; vY = 0; }
     }
     return y + birdSize / 2;
   }
@@ -126,7 +126,7 @@ function updateBotAI(room) {
   if (bot.y >= gameHeight - birdSize - 40) {
     // Too close to floor — flap regardless
     action = "up";
-  } else if (bot.y < 8 && bot.velocityY < 0) {
+  } else if (bot.y < vineDepth + 12 && bot.velocityY < 0) {
     // Ceiling — stop flapping, let gravity pull back down
     action = null;
   } else if (next) {

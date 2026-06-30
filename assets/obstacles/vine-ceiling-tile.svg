@@ -1,15 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 16">
-  <!-- Ceiling stone — full width for seamless repeat -->
-  <rect width="40" height="7" fill="#484848"/>
-  <rect width="40" height="2" fill="#333"/>
-  <!-- Horizontal vine stem — starts and ends at x=0/40 for seamless tile -->
-  <path d="M0,7 C5,6 12,8 20,7 C28,6 34,8 40,7" stroke="#4A7C3F" stroke-width="2.5" fill="none"/>
-  <!-- Hanging leaves -->
-  <ellipse cx="5"  cy="11" rx="5"   ry="3"   fill="#32CD32" stroke="#111" stroke-width="0.8" transform="rotate(10 5 11)"/>
-  <ellipse cx="14" cy="13" rx="4.5" ry="2.8" fill="#2DB82D" stroke="#111" stroke-width="0.7" transform="rotate(-15 14 13)"/>
-  <ellipse cx="23" cy="12" rx="5"   ry="3"   fill="#32CD32" stroke="#111" stroke-width="0.8" transform="rotate(5 23 12)"/>
-  <ellipse cx="32" cy="14" rx="4"   ry="2.5" fill="#228B22" stroke="#111" stroke-width="0.7" transform="rotate(-10 32 14)"/>
-  <!-- Short pendant tendrils -->
-  <path d="M9,8  C9,11  8,14"  stroke="#3A6B30" stroke-width="1.5" fill="none"/>
-  <path d="M28,8 C28,12 29,15" stroke="#3A6B30" stroke-width="1.5" fill="none"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 24">
+  <!-- Transparent - dense leaf mass, no stone background -->
+
+  <!-- Horizontal vine stem - seamless at x=0/x=40 -->
+  <path d="M0,4 C6,2 14,6 20,4 C26,2 34,6 40,4" stroke="#4A7C3F" stroke-width="2.5" fill="none"/>
+
+  <!-- Pendant stems -->
+  <path d="M7,3  C7,8  6,15"  stroke="#3A6B30" stroke-width="1.8" fill="none"/>
+  <path d="M20,3 C21,9 19,17" stroke="#3A6B30" stroke-width="2"   fill="none"/>
+  <path d="M33,3 C34,8 33,16" stroke="#4A7C3F" stroke-width="1.8" fill="none"/>
+
+  <!-- Upper leaf row -->
+  <circle cx="3"  cy="4"  r="7.5" fill="#32CD32" stroke="#1A6B1A" stroke-width="0.9"/>
+  <circle cx="13" cy="3"  r="8"   fill="#2AAF2A" stroke="#1A6B1A" stroke-width="0.9"/>
+  <circle cx="23" cy="4"  r="7.5" fill="#228B22" stroke="#1A6B1A" stroke-width="0.9"/>
+  <circle cx="33" cy="3"  r="8"   fill="#32CD32" stroke="#1A6B1A" stroke-width="0.9"/>
+  <circle cx="40" cy="4"  r="6"   fill="#2AAF2A" stroke="#1A6B1A" stroke-width="0.9"/>
+
+  <!-- Lower hanging leaf row -->
+  <circle cx="7"  cy="14" r="7.5" fill="#228B22" stroke="#1A6B1A" stroke-width="0.9"/>
+  <circle cx="18" cy="15" r="8"   fill="#32CD32" stroke="#1A6B1A" stroke-width="0.9"/>
+  <circle cx="29" cy="14" r="7.5" fill="#2AAF2A" stroke="#1A6B1A" stroke-width="0.9"/>
+  <circle cx="39" cy="15" r="6.5" fill="#228B22" stroke="#1A6B1A" stroke-width="0.9"/>
+
+  <!-- Bottom draping clusters -->
+  <circle cx="3"  cy="22" r="5.5" fill="#1A7A1A" stroke="#1A6B1A" stroke-width="0.8"/>
+  <circle cx="14" cy="23" r="6"   fill="#228B22" stroke="#1A6B1A" stroke-width="0.8"/>
+  <circle cx="25" cy="22" r="5.5" fill="#1A7A1A" stroke="#1A6B1A" stroke-width="0.8"/>
+  <circle cx="35" cy="23" r="6"   fill="#228B22" stroke="#1A6B1A" stroke-width="0.8"/>
 </svg>
