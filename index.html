@@ -58,5 +58,31 @@
     <script src="/socket.io/socket.io.js"></script>
     <script src="sounds.js"></script>
     <script src="game.js"></script>
+
+    <div id="leaderboardPanel">
+      <div class="lb-half">
+        <div class="lb-section-title">
+          This Hour
+          <span id="lbCountdown" class="lb-countdown"></span>
+        </div>
+        <table class="lb-table">
+          <thead><tr><th>#</th><th>Player</th><th>M&nbsp;/&nbsp;R</th></tr></thead>
+          <tbody id="hourlyTableBody">
+            <tr><td colspan="3" class="lb-empty">No games yet this hour</td></tr>
+          </tbody>
+        </table>
+        <div class="lb-hint">M = match wins &nbsp;·&nbsp; R = round wins</div>
+      </div>
+      <div class="lb-half">
+        <div class="lb-section-title">Hall of Fame ✨</div>
+        <table class="lb-table">
+          <thead><tr><th>#</th><th>Player</th><th>⭐</th></tr></thead>
+          <tbody id="hofTableBody">
+            <tr><td colspan="3" class="lb-empty">No champions yet</td></tr>
+          </tbody>
+        </table>
+        <div class="lb-hint">⭐ earned by topping each hourly board</div>
+      </div>
+    </div>
   </body>
 </html>

@@ -618,6 +618,122 @@ hr {
   }
 }
 
+/* ─── Leaderboard ─────────────────────────────────────────────────────────── */
+#leaderboardPanel {
+  display: flex;
+  width: 420px;
+  margin: 20px auto 30px;
+  gap: 0;
+  border: 3px solid #2c3e50;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #ffffff 0%, #f5f5f5 100%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.lb-half {
+  flex: 1;
+  padding: 12px 10px 10px;
+  min-width: 0;
+}
+
+.lb-half:first-child {
+  border-right: 2px solid #e0e0e0;
+}
+
+.lb-section-title {
+  font-size: 13px;
+  font-weight: bold;
+  color: #2c3e50;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.lb-countdown {
+  font-size: 10px;
+  font-weight: normal;
+  color: #888;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.lb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.lb-table thead th {
+  text-align: left;
+  color: #888;
+  font-weight: normal;
+  font-size: 11px;
+  padding: 2px 3px 4px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.lb-table thead th:last-child {
+  text-align: right;
+}
+
+.lb-table tbody tr:nth-child(odd) {
+  background: rgba(255, 215, 0, 0.06);
+}
+
+.lb-rank {
+  color: #aaa;
+  font-size: 11px;
+  width: 18px;
+  padding: 3px 2px;
+}
+
+.lb-name {
+  font-weight: bold;
+  color: #2c3e50;
+  padding: 3px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 90px;
+}
+
+.lb-score {
+  text-align: right;
+  color: #555;
+  padding: 3px 2px;
+  white-space: nowrap;
+}
+
+.lb-empty {
+  text-align: center;
+  color: #bbb;
+  font-size: 11px;
+  padding: 10px 4px;
+  font-style: italic;
+}
+
+.lb-hint {
+  font-size: 10px;
+  color: #aaa;
+  margin-top: 5px;
+  text-align: center;
+}
+
+/* Highlight rank 1 row */
+.lb-table tbody tr:first-child .lb-name {
+  color: #B8860B;
+}
+.lb-table tbody tr:first-child .lb-rank {
+  color: #FFD700;
+  font-weight: bold;
+}
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 @media (max-width: 500px) {
   body {
     overflow-x: hidden;
@@ -630,7 +746,8 @@ hr {
 
   .panel,
   #gameArea,
-  #controls {
+  #controls,
+  #leaderboardPanel {
     width: 94vw;
     box-sizing: border-box;
   }

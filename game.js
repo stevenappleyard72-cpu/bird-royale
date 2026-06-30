@@ -30,6 +30,9 @@ let spectatorJoining = false;  // True when we joined mid-game as spectator
 let spectatorCount = 0;
 let pickups = [];
 
+let leaderboardData = null;
+let lbCountdownInterval = null;
+
 const serverWidth = 420;
 const serverHeight = 500;
 const birdSize = 40;
@@ -37,6 +40,7 @@ const birdSize = 40;
 socket.on("connect", function () {
   mySocketId = socket.id;
   document.getElementById("version").textContent = "v" + APP_VERSION;
+  socket.emit("requestLeaderboard");
 });
 
 function generateGameCode() {
@@ -763,3 +767,47 @@ socket.on("pickupCollected", function () {
 socket.on("shieldBlock", function () {
   SoundEngine.shieldBlock();
 });
+
+socket.on("leaderboardUpdate", function (data) {
+  leaderboardData = data;
+  drawLeaderboard();
+});
+
+function drawLeaderboard() {
+  if (!leaderboardData) return;
+
+  const hourlyBody = document.getElementById("hourlyTableBody");
+  if (hourlyBody) {
+    hourlyBody.innerHTML = leaderboardData.hourly.length === 0
+      ? "<tr><td colspan='3' class='lb-empty'>No games yet this hour</td></tr>"
+      : leaderboardData.hourly.map(function (e, i) {
+          return "<tr><td class='lb-rank'>" + (i + 1) + "</td><td class='lb-name'>" + e.name +
+            "</td><td class='lb-score'>" + e.matchWins + "M / " + e.roundWins + "R</td></tr>";
+        }).join("");
+  }
+
+  const hofBody = document.getElementById("hofTableBody");
+  if (hofBody) {
+    hofBody.innerHTML = leaderboardData.hof.length === 0
+      ? "<tr><td colspan='3' class='lb-empty'>No champions yet</td></tr>"
+      : leaderboardData.hof.map(function (e, i) {
+          return "<tr><td class='lb-rank'>" + (i + 1) + "</td><td class='lb-name'>" + e.name +
+            "</td><td class='lb-score'>" + e.points + " ⭐</td></tr>";
+        }).join("");
+  }
+
+  // Start/reset countdown ticker
+  if (!lbCountdownInterval) {
+    lbCountdownInterval = setInterval(updateLbCountdown, 1000);
+  }
+  updateLbCountdown();
+}
+
+function updateLbCountdown() {
+  const el = document.getElementById("lbCountdown");
+  if (!el || !leaderboardData) return;
+  const remaining = Math.max(0, leaderboardData.resetAt - Date.now());
+  const mins = Math.floor(remaining / 60000);
+  const secs = Math.floor((remaining % 60000) / 1000);
+  el.textContent = "resets in " + mins + "m " + String(secs).padStart(2, "0") + "s";
+}

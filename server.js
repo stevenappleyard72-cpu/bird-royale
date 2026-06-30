@@ -1,5 +1,6 @@
 const express = require("express");
 const path = require("path");
+const fs = require("fs");
 const http = require("http");
 const { Server } = require("socket.io");
 
@@ -44,6 +45,96 @@ const BOT_NAME = "Bot";
 
 const grassDepth = 28;
 const vineDepth = 24;
+
+// ─── Leaderboard ──────────────────────────────────────────────────────────────
+const LEADERBOARD_FILE = path.join(__dirname, "leaderboard.json");
+const MAX_NAME_LENGTH = 20;
+
+function loadHallOfFame() {
+  try {
+    if (fs.existsSync(LEADERBOARD_FILE)) {
+      return JSON.parse(fs.readFileSync(LEADERBOARD_FILE, "utf8"));
+    }
+  } catch (e) {
+    console.error("Failed to load leaderboard:", e.message);
+  }
+  return {};
+}
+
+function saveHallOfFame() {
+  try {
+    fs.writeFileSync(LEADERBOARD_FILE, JSON.stringify(hallOfFame, null, 2));
+  } catch (e) {
+    console.error("Failed to save leaderboard:", e.message);
+  }
+}
+
+let hallOfFame = loadHallOfFame();  // { [name]: { points, bestMatchWins, bestRoundWins } }
+let hourlyStats = {};               // { [name]: { matchWins, roundWins } }
+let activeNames = {};               // { [nameLower]: socketId }
+let hourlyResetTime = Date.now() + 3600000;
+
+function getLeaderboardData() {
+  const hourly = Object.entries(hourlyStats)
+    .map(([name, s]) => ({ name, matchWins: s.matchWins, roundWins: s.roundWins }))
+    .sort((a, b) => b.matchWins - a.matchWins || b.roundWins - a.roundWins)
+    .slice(0, 10);
+
+  const hof = Object.entries(hallOfFame)
+    .map(([name, d]) => ({ name, points: d.points, bestMatchWins: d.bestMatchWins, bestRoundWins: d.bestRoundWins }))
+    .sort((a, b) => b.points - a.points || b.bestMatchWins - a.bestMatchWins)
+    .slice(0, 10);
+
+  return { hourly, hof, resetAt: hourlyResetTime };
+}
+
+function recordHourlyStat(name, type) {
+  if (!hourlyStats[name]) hourlyStats[name] = { matchWins: 0, roundWins: 0 };
+  hourlyStats[name][type]++;
+}
+
+function resetHourlyLeaderboard() {
+  const entries = Object.entries(hourlyStats);
+  if (entries.length > 0) {
+    const maxMatchWins = Math.max(...entries.map(([, s]) => s.matchWins));
+    if (maxMatchWins > 0) {
+      entries
+        .filter(([, s]) => s.matchWins === maxMatchWins)
+        .forEach(([name, stats]) => {
+          if (!hallOfFame[name]) hallOfFame[name] = { points: 0, bestMatchWins: 0, bestRoundWins: 0 };
+          hallOfFame[name].points++;
+          if (stats.matchWins > hallOfFame[name].bestMatchWins ||
+              (stats.matchWins === hallOfFame[name].bestMatchWins && stats.roundWins > hallOfFame[name].bestRoundWins)) {
+            hallOfFame[name].bestMatchWins = stats.matchWins;
+            hallOfFame[name].bestRoundWins = stats.roundWins;
+          }
+        });
+      saveHallOfFame();
+    }
+  }
+  hourlyStats = {};
+  hourlyResetTime = Date.now() + 3600000;
+  io.emit("leaderboardUpdate", getLeaderboardData());
+}
+
+setInterval(resetHourlyLeaderboard, 3600000);
+
+function validateAndRegisterName(socket, playerName) {
+  const trimmed = (playerName || "").trim().slice(0, MAX_NAME_LENGTH);
+  if (trimmed.length < 2) return { error: "Name must be at least 2 characters." };
+  const nameLower = trimmed.toLowerCase();
+  if (nameLower === "bot") return { error: '"Bot" is a reserved name.' };
+  if (activeNames[nameLower] && activeNames[nameLower] !== socket.id) {
+    return { error: `The name "${trimmed}" is already used by an active player.` };
+  }
+  // Clear any previous name registered to this socket (they may have renamed)
+  for (const [key, id] of Object.entries(activeNames)) {
+    if (id === socket.id) { delete activeNames[key]; break; }
+  }
+  activeNames[nameLower] = socket.id;
+  return { name: trimmed };
+}
+// ─────────────────────────────────────────────────────────────────────────
 
 app.use(express.static(__dirname));
 
@@ -542,6 +633,15 @@ function endRound(roomCode, winner) {
 
   const matchWinner = winner && winner.score >= room.targetScore ? winner : null;
 
+  // Track hourly leaderboard stats (bot excluded)
+  if (winner && winner.id !== BOT_ID) {
+    recordHourlyStat(winner.name, "roundWins");
+  }
+  if (matchWinner && matchWinner.id !== BOT_ID) {
+    recordHourlyStat(matchWinner.name, "matchWins");
+    io.emit("leaderboardUpdate", getLeaderboardData());
+  }
+
   // When the whole match ends, notify waiting spectators they can now join
   if (matchWinner && Object.keys(room.spectators || {}).length > 0) {
     io.to(roomCode).emit("spectatorsCanJoin", {
@@ -609,6 +709,12 @@ function startGameLoop(roomCode) {
 
 io.on("connection", (socket) => {
   socket.on("createGame", ({ playerName, roomCode, gameSpeed, targetScore }) => {
+    const nameCheck = validateAndRegisterName(socket, playerName);
+    if (nameCheck.error) {
+      socket.emit("joinError", nameCheck.error);
+      return;
+    }
+
     rooms[roomCode] = {
       hostId: socket.id,
       players: {},
@@ -623,7 +729,7 @@ io.on("connection", (socket) => {
       lastPickupSpawn: 0
     };
 
-    addPlayerToRoom(socket, roomCode, playerName);
+    addPlayerToRoom(socket, roomCode, nameCheck.name);
 
     io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
   });
@@ -636,15 +742,21 @@ io.on("connection", (socket) => {
       return;
     }
 
+    const nameCheck = validateAndRegisterName(socket, playerName);
+    if (nameCheck.error) {
+      socket.emit("joinError", nameCheck.error);
+      return;
+    }
+
     if (room.started) {
       // Mid-game join: become a spectator until the match ends
-      room.spectators[socket.id] = { id: socket.id, name: playerName };
+      room.spectators[socket.id] = { id: socket.id, name: nameCheck.name };
       socket.join(roomCode);
       socket.emit("joinedAsSpectator", getGameState(roomCode));
       return;
     }
 
-    addPlayerToRoom(socket, roomCode, playerName);
+    addPlayerToRoom(socket, roomCode, nameCheck.name);
 
     io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
   });
@@ -719,6 +831,10 @@ io.on("connection", (socket) => {
     io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
   });
 
+  socket.on("requestLeaderboard", () => {
+    socket.emit("leaderboardUpdate", getLeaderboardData());
+  });
+
   socket.on("playerInput", ({ roomCode, direction }) => {
     const room = rooms[roomCode];
 
@@ -732,6 +848,11 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
+    // Free this player's name so others (or themselves on reconnect) can claim it
+    for (const [nameLower, id] of Object.entries(activeNames)) {
+      if (id === socket.id) { delete activeNames[nameLower]; break; }
+    }
+
     for (const roomCode in rooms) {
       const room = rooms[roomCode];
 
