@@ -219,7 +219,8 @@ function getGameState(roomCode) {
     }),
     obstacles: room.obstacles,
     obstaclesPassed: room.obstaclesPassed,
-    pickups: room.pickups || []
+    pickups: room.pickups || [],
+    spectatorCount: Object.keys(room.spectators || {}).length
   };
 }
 
@@ -541,6 +542,13 @@ function endRound(roomCode, winner) {
 
   const matchWinner = winner && winner.score >= room.targetScore ? winner : null;
 
+  // When the whole match ends, notify waiting spectators they can now join
+  if (matchWinner && Object.keys(room.spectators || {}).length > 0) {
+    io.to(roomCode).emit("spectatorsCanJoin", {
+      spectatorCount: Object.keys(room.spectators).length
+    });
+  }
+
   broadcastGameState(roomCode);
 
   io.to(roomCode).emit("roundEnded", {
@@ -604,6 +612,7 @@ io.on("connection", (socket) => {
     rooms[roomCode] = {
       hostId: socket.id,
       players: {},
+      spectators: {},
       started: false,
       obstacles: [],
       obstaclesPassed: 0,
@@ -628,7 +637,10 @@ io.on("connection", (socket) => {
     }
 
     if (room.started) {
-      socket.emit("joinError", "This round has already started.");
+      // Mid-game join: become a spectator until the match ends
+      room.spectators[socket.id] = { id: socket.id, name: playerName };
+      socket.join(roomCode);
+      socket.emit("joinedAsSpectator", getGameState(roomCode));
       return;
     }
 
@@ -668,6 +680,45 @@ io.on("connection", (socket) => {
     }, 4000);
   });
 
+  socket.on("requestRematch", ({ roomCode }) => {
+    const room = rooms[roomCode];
+    if (!room) return;
+    if (socket.id !== room.hostId) return;
+    if (room.started) return;
+
+    // Admit waiting spectators as players
+    for (const specId in room.spectators) {
+      const spec = room.spectators[specId];
+      const playerCount = Object.keys(room.players).length;
+      room.players[specId] = {
+        id: specId,
+        name: spec.name,
+        colour: playerColours[playerCount % playerColours.length],
+        x: 70 + playerCount * 55,
+        y: 220,
+        velocityX: 0,
+        velocityY: 0,
+        diveBurst: 0,
+        alive: true,
+        score: 0,
+        shieldExpiry: null
+      };
+    }
+    room.spectators = {};
+
+    // Reset all scores for the rematch
+    for (const player of Object.values(room.players)) {
+      player.score = 0;
+    }
+
+    // Remove bot if real players now fill the room
+    if (Object.keys(room.players).length > 1 && room.players[BOT_ID]) {
+      delete room.players[BOT_ID];
+    }
+
+    io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
+  });
+
   socket.on("playerInput", ({ roomCode, direction }) => {
     const room = rooms[roomCode];
 
@@ -683,6 +734,11 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     for (const roomCode in rooms) {
       const room = rooms[roomCode];
+
+      // Remove from spectators if they were spectating
+      if (room.spectators && room.spectators[socket.id]) {
+        delete room.spectators[socket.id];
+      }
 
       if (room.players[socket.id]) {
         delete room.players[socket.id];

@@ -26,6 +26,8 @@ const explosionDuration = 600;  // milliseconds
 let playerStats = {};  // Track wins/losses: { playerId: { wins, matches } }
 let winnerSceneActive = false;
 let spectatingActive = false;
+let spectatorJoining = false;  // True when we joined mid-game as spectator
+let spectatorCount = 0;
 let pickups = [];
 
 const serverWidth = 420;
@@ -184,6 +186,15 @@ function showWinnerScene(winner) {
   startMsg.textContent = "Press SPACE to start a new match";
   winnerScene.appendChild(startMsg);
 
+  // Rematch button (only for host)
+  if (mySocketId === hostId) {
+    const rematchBtn = document.createElement("button");
+    rematchBtn.id = "rematchBtn";
+    rematchBtn.textContent = "Rematch";
+    rematchBtn.onclick = function () { requestRematch(); };
+    winnerScene.appendChild(rematchBtn);
+  }
+
   document.getElementById("gameArea").appendChild(winnerScene);
   createConfetti();
   winnerSceneActive = true;
@@ -287,6 +298,11 @@ function hideSpectatorOverlay() {
   if (overlay) overlay.remove();
 }
 
+function requestRematch() {
+  socket.emit("requestRematch", { roomCode: currentGameCode });
+  hideWinnerScene();
+}
+
 function toggleMute() {
   const muted = SoundEngine.toggleMute();
   document.getElementById("muteBtn").textContent = muted ? "🔇 Sound" : "🔊 Sound";
@@ -339,6 +355,7 @@ function updateLocalState(data) {
   setGameSpeed(data.gameSpeed || gameSpeed);
   targetScore = data.targetScore || targetScore;
   pickups = data.pickups || [];
+  spectatorCount = data.spectatorCount || 0;
 }
 
 function drawPlayers() {
@@ -486,11 +503,14 @@ function updatePlayerList() {
 
 function showWaitingMessage() {
   const isHost = mySocketId === hostId;
+  const specCount = (typeof spectatorCount !== "undefined" && spectatorCount > 0)
+    ? " " + spectatorCount + " spectator" + (spectatorCount > 1 ? "s" : "") + " waiting."
+    : "";
 
   document.getElementById("message").textContent =
     "Game code: " + currentGameCode +
     ". Speed: " + gameSpeed + " (" + gameSpeedMultiplier.toFixed(1) + "x). " +
-    "Target: " + targetScore + " rounds. " +
+    "Target: " + targetScore + " rounds." + specCount + " " +
     (isHost
       ? "You are the host. Press any movement control to start."
       : "Waiting for the host to start.");
@@ -569,7 +589,11 @@ document.addEventListener("keydown", function (event) {
   // Space to start new match from winner scene
   if (event.code === "Space" && winnerSceneActive) {
     event.preventDefault();
-    hideWinnerScene();
+    if (mySocketId === hostId) {
+      requestRematch();
+    } else {
+      hideWinnerScene();
+    }
     return;
   }
 
@@ -616,6 +640,7 @@ socket.on("roomUpdated", function (data) {
 
   winnerSceneActive = false;
   spectatingActive = false;
+  spectatorJoining = false;
   playerStats = {};
   drawGame();
   updatePlayerList();
@@ -713,6 +738,22 @@ socket.on("roundEnded", function (data) {
 
 socket.on("joinError", function (message) {
   document.getElementById("message").textContent = message;
+});
+
+socket.on("joinedAsSpectator", function (data) {
+  spectatorJoining = true;
+  updateLocalState(data);
+  showGameArea();
+  drawGame();
+  updatePlayerList();
+  document.getElementById("lobby").style.display = "none";
+  document.getElementById("message").textContent = "Spectating... You'll join as a player when the current match ends.";
+});
+
+socket.on("spectatorsCanJoin", function () {
+  if (spectatorJoining) {
+    document.getElementById("message").textContent = "The match has ended! You will join the next game.";
+  }
 });
 
 socket.on("pickupCollected", function () {
