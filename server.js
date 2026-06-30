@@ -74,6 +74,7 @@ let hallOfFame = loadHallOfFame();  // { [name]: { points, bestMatchWins, bestRo
 let hourlyStats = {};               // { [name]: { matchWins, roundWins } }
 let activeNames = {};               // { [nameLower]: socketId }
 let hourlyResetTime = Date.now() + 3600000;
+let waitingQueue = {};              // { [socketId]: { name } } — sockets waiting for any open game
 
 function getLeaderboardData() {
   const hourly = Object.entries(hourlyStats)
@@ -119,6 +120,26 @@ function resetHourlyLeaderboard() {
 }
 
 setInterval(resetHourlyLeaderboard, 3600000);
+
+// Drain waiting queue into a newly-started room
+function drainWaitingQueue(roomCode) {
+  const room = rooms[roomCode];
+  if (!room) return;
+
+  for (const [socketId, entry] of Object.entries(waitingQueue)) {
+    const realPlayers = Object.keys(room.players).filter(id => id !== BOT_ID).length;
+    const totalOccupants = realPlayers + Object.keys(room.spectators || {}).length;
+    if (totalOccupants >= MAX_PLAYERS) break;
+
+    const sock = io.sockets.sockets.get(socketId);
+    if (!sock) { delete waitingQueue[socketId]; continue; }
+
+    room.spectators[socketId] = { id: socketId, name: entry.name };
+    sock.join(roomCode);
+    sock.emit("joinedAsSpectator", getGameState(roomCode));
+    delete waitingQueue[socketId];
+  }
+}
 
 function validateAndRegisterName(socket, playerName) {
   const trimmed = (playerName || "").trim().slice(0, MAX_NAME_LENGTH);
@@ -790,6 +811,7 @@ io.on("connection", (socket) => {
       rooms[roomCode].started = true;
       io.to(roomCode).emit("gameStarted", getGameState(roomCode));
       startGameLoop(roomCode);
+      drainWaitingQueue(roomCode);
     }, 4000);
   });
 
@@ -852,11 +874,9 @@ io.on("connection", (socket) => {
     });
 
     if (!openRoom) {
-      // Release the name we just registered since they won't be joining
-      for (const [key, id] of Object.entries(activeNames)) {
-        if (id === socket.id) { delete activeNames[key]; break; }
-      }
-      socket.emit("joinError", "No open games right now. Create one or try again soon!");
+      // No game available — hold in queue and keep name registered
+      waitingQueue[socket.id] = { name: nameCheck.name };
+      socket.emit("quickJoinQueued");
       return;
     }
 
@@ -864,6 +884,15 @@ io.on("connection", (socket) => {
     room.spectators[socket.id] = { id: socket.id, name: nameCheck.name };
     socket.join(roomCode);
     socket.emit("joinedAsSpectator", getGameState(roomCode));
+  });
+
+  socket.on("cancelQuickJoin", () => {
+    if (waitingQueue[socket.id]) {
+      delete waitingQueue[socket.id];
+      for (const [key, id] of Object.entries(activeNames)) {
+        if (id === socket.id) { delete activeNames[key]; break; }
+      }
+    }
   });
 
   socket.on("playerInput", ({ roomCode, direction }) => {
@@ -880,6 +909,7 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     // Free this player's name so others (or themselves on reconnect) can claim it
+    delete waitingQueue[socket.id];  // also remove from quick-join queue if waiting
     for (const [nameLower, id] of Object.entries(activeNames)) {
       if (id === socket.id) { delete activeNames[nameLower]; break; }
     }

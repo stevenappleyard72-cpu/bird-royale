@@ -317,6 +317,38 @@ function quickJoin() {
   socket.emit("findOpenGame", { playerName });
 }
 
+let quickJoinSearching = false;
+
+function startQuickJoinSearch() {
+  quickJoinSearching = true;
+  const btn = document.getElementById("quickJoinBtn");
+  const msg = document.getElementById("message");
+  if (btn) {
+    btn.textContent = "Cancel Search";
+    btn.onclick = cancelQuickJoin;
+  }
+  if (msg) {
+    msg.textContent = "";
+    msg.innerHTML = "Searching for a game<span class='searching-dots'><span>.</span><span>.</span><span>.</span></span>";
+  }
+}
+
+function cancelQuickJoin() {
+  if (!quickJoinSearching) return;
+  quickJoinSearching = false;
+  socket.emit("cancelQuickJoin");
+  const btn = document.getElementById("quickJoinBtn");
+  if (btn) {
+    btn.textContent = "Quick Join a Running Game";
+    btn.onclick = quickJoin;
+  }
+  document.getElementById("message").textContent = "";
+}
+
+socket.on("quickJoinQueued", function () {
+  startQuickJoinSearch();
+});
+
 function createGame() {
   const playerName = getPlayerName();
   currentGameCode = generateGameCode();
@@ -746,10 +778,15 @@ socket.on("roundEnded", function (data) {
 });
 
 socket.on("joinError", function (message) {
+  if (quickJoinSearching) cancelQuickJoin();
   document.getElementById("message").textContent = message;
 });
 
 socket.on("joinedAsSpectator", function (data) {
+  quickJoinSearching = false;
+  const btn = document.getElementById("quickJoinBtn");
+  if (btn) { btn.textContent = "Quick Join a Running Game"; btn.onclick = quickJoin; }
+
   spectatorJoining = true;
   updateLocalState(data);
   showGameArea();
