@@ -39,6 +39,9 @@ const shieldPickupSize = 28;
 const maxPickups = 1;
 const pickupSpawnInterval = 7000;
 
+const BOT_ID = "__bot__";
+const BOT_NAME = "Bot";
+
 app.use(express.static(__dirname));
 
 app.get("/", (req, res) => {
@@ -66,6 +69,107 @@ function randomNumber(min, max) {
 function getPlayersInRoom(roomCode) {
   if (!rooms[roomCode]) return [];
   return Object.values(rooms[roomCode].players);
+}
+
+function addBotToRoom(roomCode) {
+  const room = rooms[roomCode];
+  const playerCount = Object.keys(room.players).length;
+  room.players[BOT_ID] = {
+    id: BOT_ID,
+    name: BOT_NAME,
+    colour: playerColours[playerCount % playerColours.length],
+    x: 70 + playerCount * 55,
+    y: 220,
+    velocityX: 0,
+    velocityY: 0,
+    diveBurst: 0,
+    alive: true,
+    score: 0,
+    shieldExpiry: null
+  };
+}
+
+function updateBotAI(room) {
+  const bot = room.players[BOT_ID];
+  if (!bot || !bot.alive) return;
+
+  // ~5 decisions per second with slight jitter, matching a casual human
+  const now = Date.now();
+  if (now - (room.botLastInput || 0) < 170 + Math.random() * 60) return;
+
+  const speedMultiplier = getSpeedMultiplier(room);
+
+  // Simulate the bot's Y trajectory forward for `ticks` steps using actual physics.
+  // Returns the centre-Y of the bird at that point.
+  function predictCenterY(startY, startVY, ticks) {
+    let y = startY;
+    let vY = startVY;
+    for (let t = 0; t < ticks; t++) {
+      vY += gravity * speedMultiplier;
+      y  += vY   * speedMultiplier;
+      // Clamp at arena walls so simulation doesn't fly off to infinity
+      if (y < 0)                  { y = 0;                  vY = 0; }
+      if (y > gameHeight - birdSize) { y = gameHeight - birdSize; vY = 0; }
+    }
+    return y + birdSize / 2;
+  }
+
+  // Next obstacle whose right edge hasn't passed the bird's left edge yet
+  const next = room.obstacles.find(o => o.x + o.width > bot.x);
+
+  let action = null;
+
+  // ── Hard safety overrides ───────────────────────────────────────────────
+  if (bot.y >= gameHeight - birdSize - 40) {
+    // Too close to floor — flap regardless
+    action = "up";
+  } else if (bot.y < 8 && bot.velocityY < 0) {
+    // Ceiling — stop flapping, let gravity pull back down
+    action = null;
+  } else if (next) {
+    // ── Predictive gap-threading ──────────────────────────────────────────
+    const gapTop    = next.topHeight;
+    const gapBottom = gameHeight - next.bottomHeight;
+    const gapCenter = (gapTop + gapBottom) / 2;
+    const gapSize   = gapBottom - gapTop;
+
+    // Safe target band: keep birdSize clearance from each wall
+    const safeTop    = gapTop    + birdSize * 0.5 + 8;
+    const safeBottom = gapBottom - birdSize * 0.5 - 8;
+
+    // Ticks until the obstacle's left face reaches the bird's right edge
+    const distToFace  = next.x - (bot.x + birdSize);
+    const ticksToFace = Math.max(0, Math.round(distToFace / (obstacleSpeed * speedMultiplier)));
+
+    const predictedNow  = predictCenterY(bot.y, bot.velocityY, ticksToFace);
+    const predictedFlap = predictCenterY(bot.y, flapStrength,  ticksToFace);
+
+    if (predictedNow > safeBottom) {
+      // Will arrive below the safe zone — flap if it helps (or if it's the best option)
+      if (predictedFlap < predictedNow) {
+        action = "up";
+      }
+    } else if (predictedNow < safeTop) {
+      // Will arrive above the safe zone — hold off, gravity is enough
+      action = null;
+    } else {
+      // On track through the gap — bias toward centre to give headroom
+      if (predictedNow > gapCenter + gapSize * 0.15) {
+        action = "up";
+      }
+    }
+  } else {
+    // ── No obstacle in view — hover in the middle third ──────────────────
+    const centerY = bot.y + birdSize / 2;
+    if (centerY > gameHeight * 0.62 || bot.velocityY > 3.5) {
+      action = "up";
+    }
+  }
+
+  if (action) {
+    applyInput(bot, action, room);
+    room.botLastInput = now;
+  }
 }
 
 function createObstacle(x) {
@@ -482,6 +586,7 @@ function startGameLoop(roomCode) {
     }
 
     updatePlayerPhysics(activeRoom);
+    updateBotAI(activeRoom);
     applyPlayerCollisions(activeRoom, roomCode);
     updateObstacles(activeRoom);
     updatePickups(activeRoom, roomCode);
@@ -541,9 +646,8 @@ io.on("connection", (socket) => {
 
     if (room.started) return;
     const playerCount = Object.keys(room.players).length;
-    if (playerCount < 2) {
-      socket.emit("joinError", "You need at least 2 players to start the round.");
-      return;
+    if (playerCount === 1) {
+      addBotToRoom(roomCode);
     }
     resetPlayersForRound(room);
 
