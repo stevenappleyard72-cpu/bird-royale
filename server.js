@@ -41,6 +41,10 @@ const shieldPickupSize = 28;
 const maxPickups = 1;
 const pickupSpawnInterval = 7000;
 
+const shockwavePickupSize = 28;
+const shockwaveRadius = 200;      // server units — covers most of the arena
+const shockwavePushStrength = 65; // knockback applied to nearby birds
+
 const BOT_ID = "__bot__";
 const BOT_NAME = "Bot";
 
@@ -623,6 +627,25 @@ function createShieldPickup(room) {
   };
 }
 
+function createShockwavePickup(room) {
+  const mid = room.obstacles[Math.floor(room.obstacles.length / 2)];
+  let y;
+  if (mid) {
+    const gapTop = mid.topHeight + shockwavePickupSize;
+    const gapBottom = gameHeight - mid.bottomHeight - shockwavePickupSize * 2;
+    y = gapTop + Math.random() * Math.max(0, gapBottom - gapTop);
+  } else {
+    y = gameHeight / 2 - shockwavePickupSize / 2;
+  }
+  return {
+    id: Math.random().toString(36).slice(2),
+    x: gameWidth,
+    y,
+    size: shockwavePickupSize,
+    type: "shockwave"
+  };
+}
+
 function updatePickups(room, roomCode) {
   const speedMultiplier = getSpeedMultiplier(room);
   const now = Date.now();
@@ -636,10 +659,36 @@ function updatePickups(room, roomCode) {
   const alivePlayers = Object.values(room.players).filter(p => p.alive);
   for (const player of alivePlayers) {
     for (let i = room.pickups.length - 1; i >= 0; i--) {
-      if (pickupOverlapsPlayer(player, room.pickups[i])) {
-        player.shieldExpiry = now + shieldDuration;
+      const pickup = room.pickups[i];
+      if (pickupOverlapsPlayer(player, pickup)) {
+        if (pickup.type === "shield") {
+          player.shieldExpiry = now + shieldDuration;
+        } else if (pickup.type === "shockwave") {
+          const collectorCX = player.x + birdSize / 2;
+          const collectorCY = player.y + birdSize / 2;
+          for (const other of alivePlayers) {
+            if (other.id === player.id) continue;
+            const dx = (other.x + birdSize / 2) - collectorCX;
+            const dy = (other.y + birdSize / 2) - collectorCY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < shockwaveRadius) {
+              const falloff = 1 - dist / shockwaveRadius;
+              const nx = dist > 0 ? dx / dist : 0;
+              const ny = dist > 0 ? dy / dist : -1;
+              other.x += nx * shockwavePushStrength * falloff;
+              other.y += ny * shockwavePushStrength * falloff;
+              other.velocityX += nx * shockwavePushStrength * falloff * 0.25;
+              other.velocityY += ny * shockwavePushStrength * falloff * 0.25;
+              keepPlayerInsideArena(other);
+            }
+          }
+          io.to(roomCode).emit("shockwaveTriggered", {
+            x: collectorCX,
+            y: collectorCY
+          });
+        }
         room.pickups.splice(i, 1);
-        io.to(roomCode).emit("pickupCollected", { playerId: player.id, type: "shield" });
+        io.to(roomCode).emit("pickupCollected", { playerId: player.id, type: pickup.type });
       }
     }
   }
@@ -651,7 +700,8 @@ function updatePickups(room, roomCode) {
   }
 
   if (room.pickups.length < maxPickups && now - room.lastPickupSpawn > pickupSpawnInterval) {
-    room.pickups.push(createShieldPickup(room));
+    const spawnShield = Math.random() < 0.5;
+    room.pickups.push(spawnShield ? createShieldPickup(room) : createShockwavePickup(room));
     room.lastPickupSpawn = now;
   }
 }

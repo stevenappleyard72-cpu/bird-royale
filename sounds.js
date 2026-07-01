@@ -170,6 +170,17 @@ const SoundEngine = (() => {
       metalRing(c, 440, 0.24, 0.4, t);
       tone(c, "square", 220, 0.1, 0.002, 0.18, t, 440);
       noiseBurst(c, 0.14, 0.1, 900, t);
+    },
+
+    // Deep bass boom + electric crackle when shockwave detonates
+    shockwavePickup() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      tone(c, "sine", 65, 0.5, 0.001, 0.4, t, 22);
+      tone(c, "sawtooth", 190, 0.18, 0.001, 0.22, t, 48);
+      metalRing(c, 110, 0.2, 0.5, t);
+      noiseBurst(c, 0.45, 0.2, 280, t);
     }
   };
 })();

@@ -23,6 +23,9 @@ let matchEnded = false;
 let explosions = {};  // Track explosions: { playerId: { x, y, color, startTime } }
 const explosionDuration = 600;  // milliseconds
 
+let shockwaves = []; // { x, y, startTime }
+const shockwaveDuration = 750; // milliseconds
+
 let playerStats = {};  // Track wins/losses: { playerId: { wins, matches } }
 let winnerSceneActive = false;
 let spectatingActive = false;
@@ -450,8 +453,9 @@ function drawPlayers() {
     container.appendChild(bird);
   }
 
-  // Draw explosions
+  // Draw explosions and shockwaves
   drawExplosions();
+  drawShockwaves();
 
   // Update previous state
   previousPlayersState = {};
@@ -507,14 +511,49 @@ function drawObstacles() {
 function drawPickups() {
   const container = document.getElementById("playersContainer");
   for (const pickup of pickups) {
-    if (pickup.type !== "shield") continue;
     const el = document.createElement("div");
-    el.className = "shield-pickup";
     el.style.left = scaleX(pickup.x) + "px";
     el.style.top = scaleY(pickup.y) + "px";
     el.style.width = scaleSize(pickup.size) + "px";
     el.style.height = scaleSize(pickup.size) + "px";
+    if (pickup.type === "shield") {
+      el.className = "shield-pickup";
+    } else if (pickup.type === "shockwave") {
+      el.className = "shockwave-pickup";
+    } else {
+      continue;
+    }
     container.appendChild(el);
+  }
+}
+
+function drawShockwaves() {
+  const container = document.getElementById("playersContainer");
+  const now = Date.now();
+  const delays = [0, 0.28, 0.54];
+  for (let i = shockwaves.length - 1; i >= 0; i--) {
+    const sw = shockwaves[i];
+    const progress = Math.min((now - sw.startTime) / shockwaveDuration, 1);
+    if (progress >= 1) {
+      shockwaves.splice(i, 1);
+      continue;
+    }
+    for (let r = 0; r < 3; r++) {
+      const d = delays[r];
+      const ringProgress = d >= 1 ? 0 : Math.max(0, Math.min((progress - d) / (1 - d), 1));
+      if (ringProgress <= 0) continue;
+      const maxRadius = scaleSize(180);
+      const currentRadius = maxRadius * ringProgress;
+      const opacity = (1 - ringProgress) * 0.85;
+      const ring = document.createElement("div");
+      ring.className = "shockwave-ring";
+      ring.style.left = scaleX(sw.x) - currentRadius + "px";
+      ring.style.top = scaleY(sw.y) - currentRadius + "px";
+      ring.style.width = currentRadius * 2 + "px";
+      ring.style.height = currentRadius * 2 + "px";
+      ring.style.opacity = opacity;
+      container.appendChild(ring);
+    }
   }
 }
 
@@ -679,6 +718,7 @@ socket.on("roomUpdated", function (data) {
   gameRunning = false;
   matchEnded = false;
   explosions = {};
+  shockwaves = [];
   previousPlayersState = {};
 
   const winnerScene = document.getElementById("winnerScene");
@@ -700,6 +740,7 @@ socket.on("gameStarting", function (data) {
 
   matchEnded = false;
   explosions = {};  // Clear explosions when new round starts
+  shockwaves = [];
   previousPlayersState = {};
   hideSpectatorOverlay();
 
@@ -809,8 +850,15 @@ socket.on("spectatorsCanJoin", function () {
   }
 });
 
-socket.on("pickupCollected", function () {
-  SoundEngine.shieldPickup();
+socket.on("pickupCollected", function (data) {
+  if (!data || data.type === "shield") {
+    SoundEngine.shieldPickup();
+  }
+});
+
+socket.on("shockwaveTriggered", function (data) {
+  shockwaves.push({ x: data.x, y: data.y, startTime: Date.now() });
+  SoundEngine.shockwavePickup();
 });
 
 socket.on("shieldBlock", function () {
