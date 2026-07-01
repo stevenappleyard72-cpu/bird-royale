@@ -448,6 +448,12 @@ function drawPlayers() {
       bird.appendChild(ring);
     }
 
+    if (player.ramBoosted) {
+      const boost = document.createElement("div");
+      boost.className = "ramboost-aura";
+      bird.appendChild(boost);
+    }
+
     bird.appendChild(sprite);
     bird.appendChild(name);
     container.appendChild(bird);
@@ -520,6 +526,8 @@ function drawPickups() {
       el.className = "shield-pickup";
     } else if (pickup.type === "shockwave") {
       el.className = "shockwave-pickup";
+    } else if (pickup.type === "ramboost") {
+      el.className = "ramboost-pickup";
     } else {
       continue;
     }
@@ -853,7 +861,13 @@ socket.on("spectatorsCanJoin", function () {
 socket.on("pickupCollected", function (data) {
   if (!data || data.type === "shield") {
     SoundEngine.shieldPickup();
+  } else if (data.type === "ramboost") {
+    SoundEngine.ramBoostPickup();
   }
+});
+
+socket.on("ramBoostHit", function () {
+  SoundEngine.ramBoostHit();
 });
 
 socket.on("shockwaveTriggered", function (data) {

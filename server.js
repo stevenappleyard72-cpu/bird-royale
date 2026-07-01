@@ -42,8 +42,13 @@ const maxPickups = 1;
 const pickupSpawnInterval = 7000;
 
 const shockwavePickupSize = 28;
-const shockwaveRadius = 200;      // server units — covers most of the arena
-const shockwavePushStrength = 65; // knockback applied to nearby birds
+const shockwaveRadius = 300;       // server units — covers most of the arena
+const shockwavePushStrength = 98;  // knockback applied to nearby birds
+
+const ramBoostDuration = 5000;
+const ramBoostPickupSize = 28;
+const ramBoostKnockbackMultiplier = 2.5; // victim flies much further
+const ramBoostRecoilMultiplier = 0.4;    // attacker barely bounces back
 
 const BOT_ID = "__bot__";
 const BOT_NAME = "Bot";
@@ -224,7 +229,8 @@ function addBotToRoom(roomCode) {
     diveBurst: 0,
     alive: true,
     score: 0,
-    shieldExpiry: null
+    shieldExpiry: null,
+    ramBoostExpiry: null
   };
 }
 
@@ -351,7 +357,11 @@ function getGameState(roomCode) {
     targetScore: room.targetScore,
     players: getPlayersInRoom(roomCode).map(p => {
       const now = Date.now();
-      return { ...p, shielded: p.shieldExpiry !== null && now < p.shieldExpiry };
+      return {
+        ...p,
+        shielded: p.shieldExpiry !== null && now < p.shieldExpiry,
+        ramBoosted: p.ramBoostExpiry !== null && now < p.ramBoostExpiry
+      };
     }),
     obstacles: room.obstacles,
     obstaclesPassed: room.obstaclesPassed,
@@ -383,7 +393,8 @@ function addPlayerToRoom(socket, roomCode, playerName) {
     diveBurst: 0,
     alive: true,
     score: 0,
-    shieldExpiry: null
+    shieldExpiry: null,
+    ramBoostExpiry: null
   };
 
   socket.join(roomCode);
@@ -400,6 +411,7 @@ function resetPlayersForRound(room) {
     players[i].diveBurst = 0;
     players[i].alive = true;
     players[i].shieldExpiry = null;
+    players[i].ramBoostExpiry = null;
   }
 }
 
@@ -513,18 +525,23 @@ function playerHitsObstacle(player, obstacle) {
 
 function applyObstacleDeaths(room) {
   const players = Object.values(room.players);
+  const now = Date.now();
 
   for (const player of players) {
     if (!player.alive) continue;
 
+    const shielded = player.shieldExpiry !== null && now < player.shieldExpiry;
+
     if (playerHitsBoundary(player)) {
-      player.alive = false;
+      if (!shielded) player.alive = false;
       continue;
     }
 
     for (const obstacle of room.obstacles) {
       if (playerHitsObstacle(player, obstacle)) {
-        player.alive = false;
+        if (!shielded) {
+          player.alive = false;
+        }
         break;
       }
     }
@@ -570,25 +587,33 @@ function applyPlayerCollisions(room, roomCode) {
 
         const victimShielded = victim.shieldExpiry !== null && now < victim.shieldExpiry;
         const attackerShielded = attacker.shieldExpiry !== null && now < attacker.shieldExpiry;
+        const attackerRamBoosted = attacker.ramBoostExpiry !== null && now < attacker.ramBoostExpiry;
 
         if (victimShielded || attackerShielded) {
           io.to(roomCode).emit("shieldBlock", {});
         }
 
+        const knockbackMult = attackerRamBoosted ? ramBoostKnockbackMultiplier : 1;
+        const recoilMult    = attackerRamBoosted ? ramBoostRecoilMultiplier    : 1;
+
         if (!victimShielded) {
-          victim.x += directionX * victimKnockback;
-          victim.y += directionY * victimKnockback;
-          victim.velocityX += directionX * 5;
-          victim.velocityY += directionY * 5;
+          victim.x += directionX * victimKnockback * knockbackMult;
+          victim.y += directionY * victimKnockback * knockbackMult;
+          victim.velocityX += directionX * 5 * knockbackMult;
+          victim.velocityY += directionY * 5 * knockbackMult;
           keepPlayerInsideArena(victim);
         }
 
         if (!attackerShielded) {
-          attacker.x -= directionX * attackerRecoil;
-          attacker.y -= directionY * attackerRecoil;
-          attacker.velocityX -= directionX * 2;
-          attacker.velocityY -= directionY * 2;
+          attacker.x -= directionX * attackerRecoil * recoilMult;
+          attacker.y -= directionY * attackerRecoil * recoilMult;
+          attacker.velocityX -= directionX * 2 * recoilMult;
+          attacker.velocityY -= directionY * 2 * recoilMult;
           keepPlayerInsideArena(attacker);
+        }
+
+        if (attackerRamBoosted) {
+          io.to(roomCode).emit("ramBoostHit", { attackerId: attacker.id });
         }
       }
     }
@@ -646,6 +671,25 @@ function createShockwavePickup(room) {
   };
 }
 
+function createRamBoostPickup(room) {
+  const mid = room.obstacles[Math.floor(room.obstacles.length / 2)];
+  let y;
+  if (mid) {
+    const gapTop = mid.topHeight + ramBoostPickupSize;
+    const gapBottom = gameHeight - mid.bottomHeight - ramBoostPickupSize * 2;
+    y = gapTop + Math.random() * Math.max(0, gapBottom - gapTop);
+  } else {
+    y = gameHeight / 2 - ramBoostPickupSize / 2;
+  }
+  return {
+    id: Math.random().toString(36).slice(2),
+    x: gameWidth,
+    y,
+    size: ramBoostPickupSize,
+    type: "ramboost"
+  };
+}
+
 function updatePickups(room, roomCode) {
   const speedMultiplier = getSpeedMultiplier(room);
   const now = Date.now();
@@ -663,6 +707,8 @@ function updatePickups(room, roomCode) {
       if (pickupOverlapsPlayer(player, pickup)) {
         if (pickup.type === "shield") {
           player.shieldExpiry = now + shieldDuration;
+        } else if (pickup.type === "ramboost") {
+          player.ramBoostExpiry = now + ramBoostDuration;
         } else if (pickup.type === "shockwave") {
           const collectorCX = player.x + birdSize / 2;
           const collectorCY = player.y + birdSize / 2;
@@ -697,11 +743,22 @@ function updatePickups(room, roomCode) {
     if (player.shieldExpiry !== null && now > player.shieldExpiry) {
       player.shieldExpiry = null;
     }
+    if (player.ramBoostExpiry !== null && now > player.ramBoostExpiry) {
+      player.ramBoostExpiry = null;
+    }
   }
 
   if (room.pickups.length < maxPickups && now - room.lastPickupSpawn > pickupSpawnInterval) {
-    const spawnShield = Math.random() < 0.5;
-    room.pickups.push(spawnShield ? createShieldPickup(room) : createShockwavePickup(room));
+    const roll = Math.random();
+    let nextPickup;
+    if (roll < 0.33) {
+      nextPickup = createShieldPickup(room);
+    } else if (roll < 0.67) {
+      nextPickup = createShockwavePickup(room);
+    } else {
+      nextPickup = createRamBoostPickup(room);
+    }
+    room.pickups.push(nextPickup);
     room.lastPickupSpawn = now;
   }
 }
@@ -906,7 +963,8 @@ io.on("connection", (socket) => {
         diveBurst: 0,
         alive: true,
         score: 0,
-        shieldExpiry: null
+        shieldExpiry: null,
+        ramBoostExpiry: null
       };
     }
     room.spectators = {};

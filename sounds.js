@@ -181,6 +181,29 @@ const SoundEngine = (() => {
       tone(c, "sawtooth", 190, 0.18, 0.001, 0.22, t, 48);
       metalRing(c, 110, 0.2, 0.5, t);
       noiseBurst(c, 0.45, 0.2, 280, t);
+    },
+
+    // Revving engine swell when ram boost is collected
+    ramBoostPickup() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      tone(c, "sawtooth", 120, 0.22, 0.02, 0.5, t, 380);
+      tone(c, "sawtooth", 180, 0.14, 0.04, 0.45, t, 520);
+      tone(c, "square",   240, 0.08, 0.06, 0.35, t, 680);
+      metalRing(c, 260, 0.1, 0.4, t + 0.12);
+      noiseBurst(c, 0.12, 0.12, 1200, t + 0.1);
+    },
+
+    // Heavy thud when a ram-boosted bird smashes into someone
+    ramBoostHit() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      tone(c, "sine",     55,  0.5, 0.001, 0.28, t, 28);
+      tone(c, "sawtooth", 320, 0.22, 0.001, 0.18, t, 60);
+      metalRing(c, 220, 0.28, 0.35, t);
+      noiseBurst(c, 0.35, 0.12, 500, t);
     }
   };
 })();
