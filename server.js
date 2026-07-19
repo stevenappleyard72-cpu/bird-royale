@@ -1074,7 +1074,13 @@ io.on("connection", (socket) => {
           return;
         }
 
-        io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
+        // Only send roomUpdated (lobby-reset event) when the game isn't running.
+        // During a live game, roomUpdated resets gameRunning = false on all clients,
+        // making surviving players unable to send input. The continuous gameState
+        // broadcast is sufficient to reflect the updated player list mid-game.
+        if (!room.started) {
+          io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
+        }
         broadcastGameState(roomCode);
         checkForRoundEnd(roomCode);
       }

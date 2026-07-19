@@ -796,6 +796,15 @@ socket.on("roundEnded", function (data) {
     setTimeout(() => {
       showWinnerScene(data.matchWinner);
     }, 1500);
+  } else if (spectatorJoining) {
+    // Mid-game spectators should not enter the between-rounds waiting state —
+    // they can't start the round and their flow is handled via spectatorsCanJoin.
+    // Just update the score display and preserve the spectating message.
+    const scoresText = players.map(function (player) {
+      return player.name + " (" + player.score + "/" + data.targetScore + ")";
+    }).join(" | ");
+    document.getElementById("message").textContent =
+      "Spectating... " + scoresText + " — waiting for the match to end.";
   } else {
     matchEnded = false;
     gameWaitingToStart = true;
@@ -845,6 +854,14 @@ socket.on("joinedAsSpectator", function (data) {
 
   spectatorJoining = true;
   updateLocalState(data);
+
+  // Seed previousPlayersState so the first drawPlayers() doesn't mistake
+  // already-dead players as "just died" and fire false explosions/sounds.
+  previousPlayersState = {};
+  for (const player of players) {
+    previousPlayersState[player.id] = player.alive;
+  }
+
   showGameArea();
   drawGame();
   updatePlayerList();
