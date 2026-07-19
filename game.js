@@ -11,7 +11,7 @@ let obstacles = [];
 let obstaclesPassed = 0;
 let previousPlayersState = {};  // Track previous alive status to detect deaths
 
-let gameSpeed = 10;
+let gameSpeed = 3;
 let gameSpeedMultiplier = 1;
 let targetScore = 3;
 
@@ -32,6 +32,10 @@ let spectatingActive = false;
 let spectatorJoining = false;  // True when we joined mid-game as spectator
 let spectatorCount = 0;
 let pickups = [];
+
+let curse = null;              // Current curse state from server (null | { state, x, y, targetId, carrierId })
+let lastCurseRattleTime = 0;  // Throttle rattle sound
+const curseBallSize = 20;     // Must match server constant
 
 let leaderboardData = null;
 let lbCountdownInterval = null;
@@ -64,7 +68,7 @@ function getPlayerName() {
 
 function getSpeedFromInput() {
   const input = document.getElementById("gameSpeedInput");
-  const speed = Number(input.value) || 10;
+  const speed = Number(input.value) || 3;
 
   if (speed < 1) return 1;
   if (speed > 99) return 99;
@@ -220,6 +224,23 @@ function hideWinnerScene() {
   document.getElementById("controls").style.display = "none";
   document.getElementById("muteBar").style.display = "none";
   document.getElementById("message").textContent = "";
+}
+
+function createMonsterEyes(isTop) {
+  const row = document.createElement("div");
+  row.className = "monster-eyes " + (isTop ? "monster-eyes-top" : "monster-eyes-bottom");
+
+  for (let e = 0; e < 2; e++) {
+    const eyeOuter = document.createElement("div");
+    eyeOuter.className = "monster-eye";
+
+    const pupil = document.createElement("div");
+    pupil.className = "monster-pupil " + (isTop ? "monster-pupil-down" : "monster-pupil-up");
+    eyeOuter.appendChild(pupil);
+    row.appendChild(eyeOuter);
+  }
+
+  return row;
 }
 
 function createExplosion(playerId, x, y, color) {
@@ -400,6 +421,7 @@ function updateLocalState(data) {
   targetScore = data.targetScore || targetScore;
   pickups = data.pickups || [];
   spectatorCount = data.spectatorCount || 0;
+  curse = data.curse !== undefined ? data.curse : null;
 }
 
 function drawPlayers() {
@@ -509,6 +531,20 @@ function drawObstacles() {
     bottomElement.appendChild(trunk);
     bottomElement.appendChild(treetop);
 
+    // Monster pipe — add glowing eyes on both segments
+    if (obstacle.isMonster) {
+      topElement.classList.add("monster-pipe");
+      bottomElement.classList.add("monster-pipe");
+
+      // Eyes on the bottom face of the top obstacle (staring down into the gap)
+      const topEyes = createMonsterEyes(true);
+      topElement.appendChild(topEyes);
+
+      // Eyes on the top face of the bottom obstacle (staring up into the gap)
+      const bottomEyes = createMonsterEyes(false);
+      bottomElement.appendChild(bottomEyes);
+    }
+
     container.appendChild(topElement);
     container.appendChild(bottomElement);
   }
@@ -565,11 +601,84 @@ function drawShockwaves() {
   }
 }
 
+function drawCurse() {
+  if (!curse) return;
+  const container = document.getElementById("playersContainer");
+
+  if (curse.state === 'roaming') {
+    // Iron ball
+    const ball = document.createElement("div");
+    ball.className = "curse-ball";
+    ball.style.left   = scaleX(curse.x) + "px";
+    ball.style.top    = scaleY(curse.y) + "px";
+    ball.style.width  = scaleSize(curseBallSize) + "px";
+    ball.style.height = scaleSize(curseBallSize) + "px";
+    container.appendChild(ball);
+
+    // Targeting beam + skull marker on the locked-on bird
+    if (curse.targetId) {
+      const tgt = players.find(function (p) { return p.id === curse.targetId; });
+      if (tgt && tgt.alive) {
+        const cx = scaleX(curse.x + curseBallSize / 2);
+        const cy = scaleY(curse.y + curseBallSize / 2);
+        const tx = scaleX(tgt.x + birdSize / 2);
+        const ty = scaleY(tgt.y + birdSize / 2);
+        const len   = Math.hypot(tx - cx, ty - cy);
+        const angle = Math.atan2(ty - cy, tx - cx) * 180 / Math.PI;
+
+        const beam = document.createElement("div");
+        beam.className = "curse-beam";
+        beam.style.left      = cx + "px";
+        beam.style.top       = cy + "px";
+        beam.style.width     = len + "px";
+        beam.style.transform = "rotate(" + angle + "deg)";
+        container.appendChild(beam);
+
+        // Skull floats above the targeted player's head
+        const marker = document.createElement("div");
+        marker.className = "curse-target-marker";
+        marker.textContent = "💀";
+        marker.style.left = scaleX(tgt.x + birdSize / 2) + "px";
+        marker.style.top  = scaleY(tgt.y - 18) + "px";
+        container.appendChild(marker);
+      }
+    }
+
+    // Rattle sound while roaming (throttled)
+    const now = Date.now();
+    if (now - lastCurseRattleTime > 1600) {
+      SoundEngine.curseRattle();
+      lastCurseRattleTime = now;
+    }
+
+  } else if (curse.state === 'attached' && curse.carrierId) {
+    const carrier = players.find(function (p) { return p.id === curse.carrierId; });
+    if (carrier && carrier.alive) {
+      // Short chain link
+      const chain = document.createElement("div");
+      chain.className = "curse-chain";
+      chain.style.left = scaleX(carrier.x + birdSize / 2 - 3) + "px";
+      chain.style.top  = scaleY(carrier.y + birdSize - 2) + "px";
+      container.appendChild(chain);
+
+      // Swinging iron ball below the carrier
+      const ball = document.createElement("div");
+      ball.className = "curse-ball-attached";
+      ball.style.left   = scaleX(carrier.x + birdSize / 2 - curseBallSize / 2) + "px";
+      ball.style.top    = scaleY(carrier.y + birdSize + 8) + "px";
+      ball.style.width  = scaleSize(curseBallSize) + "px";
+      ball.style.height = scaleSize(curseBallSize) + "px";
+      container.appendChild(ball);
+    }
+  }
+}
+
 function drawGame() {
   showGameArea();
   drawPlayers();
   drawPickups();
   drawObstacles();
+  drawCurse();
   if (spectatingActive) {
     updateSpectatorOverlay();
   }
@@ -738,6 +847,8 @@ socket.on("roomUpdated", function (data) {
   spectatingActive = false;
   spectatorJoining = false;
   playerStats = {};
+  curse = null;
+  lastCurseRattleTime = 0;
   drawGame();
   updatePlayerList();
   showWaitingMessage();
@@ -750,6 +861,8 @@ socket.on("gameStarting", function (data) {
   explosions = {};  // Clear explosions when new round starts
   shockwaves = [];
   previousPlayersState = {};
+  curse = null;
+  lastCurseRattleTime = 0;
   hideSpectatorOverlay();
 
   drawGame();
@@ -894,6 +1007,30 @@ socket.on("shockwaveTriggered", function (data) {
 
 socket.on("shieldBlock", function () {
   SoundEngine.shieldBlock();
+});
+
+socket.on("monsterActivated", function () {
+  SoundEngine.monsterActivated();
+});
+
+socket.on("curseSpawned", function () {
+  SoundEngine.curseSpawn();
+});
+
+socket.on("curseAttached", function () {
+  SoundEngine.curseAttach();
+});
+
+socket.on("curseTransferred", function () {
+  SoundEngine.curseTransfer();
+});
+
+socket.on("curseDespawned", function () {
+  SoundEngine.curseDespawn();
+});
+
+socket.on("curseDestroyedByPowerup", function () {
+  SoundEngine.curseDespawn();
 });
 
 socket.on("leaderboardUpdate", function (data) {

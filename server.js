@@ -50,6 +50,21 @@ const ramBoostPickupSize = 28;
 const ramBoostKnockbackMultiplier = 2.5; // victim flies much further
 const ramBoostRecoilMultiplier = 0.4;    // attacker barely bounces back
 
+// ── Cursed Ball and Chain ──────────────────────────────────────────────────
+const curseBallSize              = 20;    // server units (diameter)
+const curseSpawnInterval         = 22000; // ms after despawn before respawning
+const curseChaseAcceleration     = 0.06;  // steering force per tick at 1× speed
+const curseMaxSpeed              = 1.8;   // terminal speed (server units/tick at 1×)
+const curseTargetSwitchCooldown  = 1200;  // ms between beam-intercept switches
+const curseBeamInterceptDist     = birdSize * 0.65; // how close to beam counts as crossing
+const curseExtraGravity          = 0.10;  // extra gravity on carrier per tick
+const curseKnockbackBonus        = 0.30;  // 30 % more knockback received while cursed
+// ──────────────────────────────────────────────────────────────────────────
+
+const monsterSpawnInterval = 10000;  // ms between monster spawns (from despawn of last)
+const monsterChaseSpeed = 0.45;      // vertical units per tick at 1x speed — slow but unnerving
+const monsterMinGap = 115;           // minimum gap the monster must preserve while tracking
+
 const BOT_ID = "__bot__";
 const BOT_NAME = "Bot";
 
@@ -238,81 +253,55 @@ function updateBotAI(room) {
   const bot = room.players[BOT_ID];
   if (!bot || !bot.alive) return;
 
-  // ~5 decisions per second with slight jitter, matching a casual human
   const now = Date.now();
-  if (now - (room.botLastInput || 0) < 170 + Math.random() * 60) return;
-
   const speedMultiplier = getSpeedMultiplier(room);
 
-  // Simulate the bot's Y trajectory forward for `ticks` steps using actual physics.
-  // Returns the centre-Y of the bird at that point.
-  function predictCenterY(startY, startVY, ticks) {
-    let y = startY;
-    let vY = startVY;
-    for (let t = 0; t < ticks; t++) {
-      vY += gravity * speedMultiplier;
-      y  += vY   * speedMultiplier;
-      // Clamp at arena walls so simulation doesn't fly off to infinity
-      if (y < vineDepth)                        { y = vineDepth;                        vY = 0; }
-      if (y > gameHeight - birdSize - grassDepth) { y = gameHeight - birdSize - grassDepth; vY = 0; }
-    }
-    return y + birdSize / 2;
+  // Rate-limit to ~7 decisions per second, matching a casual human reaction time.
+  if (now - (room.botLastInput || 0) < 140 + Math.random() * 55) return;
+
+  const birdCenterY = bot.y + birdSize / 2;
+
+  // ── Ceiling guard: already near top and still rising — do nothing ────────────
+  if (bot.y <= vineDepth + 10 && bot.velocityY < 0) {
+    room.botLastInput = now;
+    return;
   }
 
-  // Next obstacle whose right edge hasn't passed the bird's left edge yet
+  // ── Choose vertical target ───────────────────────────────────────────────────
+  // Use the nearest upcoming pipe gap centre as the target.
+  // Clamp it well inside the gap so the bot stays clear of both walls.
   const next = room.obstacles.find(o => o.x + o.width > bot.x);
-
-  let action = null;
-
-  // ── Hard safety overrides ───────────────────────────────────────────────
-  if (bot.y >= gameHeight - birdSize - 40) {
-    // Too close to floor — flap regardless
-    action = "up";
-  } else if (bot.y < vineDepth + 12 && bot.velocityY < 0) {
-    // Ceiling — stop flapping, let gravity pull back down
-    action = null;
-  } else if (next) {
-    // ── Predictive gap-threading ──────────────────────────────────────────
+  let targetY;
+  if (next) {
     const gapTop    = next.topHeight;
     const gapBottom = gameHeight - next.bottomHeight;
-    const gapCenter = (gapTop + gapBottom) / 2;
-    const gapSize   = gapBottom - gapTop;
-
-    // Safe target band: keep birdSize clearance from each wall
-    const safeTop    = gapTop    + birdSize * 0.5 + 8;
-    const safeBottom = gapBottom - birdSize * 0.5 - 8;
-
-    // Ticks until the obstacle's left face reaches the bird's right edge
-    const distToFace  = next.x - (bot.x + birdSize);
-    const ticksToFace = Math.max(0, Math.round(distToFace / (obstacleSpeed * speedMultiplier)));
-
-    const predictedNow  = predictCenterY(bot.y, bot.velocityY, ticksToFace);
-    const predictedFlap = predictCenterY(bot.y, flapStrength,  ticksToFace);
-
-    if (predictedNow > safeBottom) {
-      // Will arrive below the safe zone — flap if it helps (or if it's the best option)
-      if (predictedFlap < predictedNow) {
-        action = "up";
-      }
-    } else if (predictedNow < safeTop) {
-      // Will arrive above the safe zone — hold off, gravity is enough
-      action = null;
-    } else {
-      // On track through the gap — bias toward centre to give headroom
-      if (predictedNow > gapCenter + gapSize * 0.15) {
-        action = "up";
-      }
-    }
+    const margin    = birdSize;           // stay at least one bird-width from each face
+    targetY = Math.max(gapTop + margin, Math.min(gapBottom - margin, (gapTop + gapBottom) / 2));
   } else {
-    // ── No obstacle in view — hover in the middle third ──────────────────
-    const centerY = bot.y + birdSize / 2;
-    if (centerY > gameHeight * 0.62 || bot.velocityY > 3.5) {
-      action = "up";
-    }
+    targetY = gameHeight / 2;
   }
 
-  if (action) {
-    applyInput(bot, action, room);
+  // Floor override: if dangerously close to the floor, push target well upward.
+  if (bot.y + birdSize >= gameHeight - grassDepth - 14) {
+    targetY = gameHeight * 0.35;
+  }
+
+  // ── Short lookahead ──────────────────────────────────────────────────────────
+  // Simulate where the bird centre will be after LOOKAHEAD ticks using only
+  // current velocity + gravity.  No flap scenario is modelled here.
+  // If this trajectory ends up below the target → flap now to correct it.
+  const LOOKAHEAD = 10;
+  let simY  = birdCenterY;
+  let simVY = bot.velocityY;
+  for (let t = 0; t < LOOKAHEAD; t++) {
+    simVY += gravity * speedMultiplier;
+    simY  += simVY * speedMultiplier;
+    if (simY < vineDepth + birdSize / 2)                  simY = vineDepth + birdSize / 2;
+    if (simY > gameHeight - grassDepth - birdSize / 2)    simY = gameHeight - grassDepth - birdSize / 2;
+  }
+
+  if (simY > targetY) {
+    applyInput(bot, "up", room);
     room.botLastInput = now;
   }
 }
@@ -327,10 +316,12 @@ function createObstacle(x) {
   }
 
   return {
+    id: Math.random().toString(36).slice(2, 9),
     x,
     width: obstacleWidth,
     topHeight,
-    bottomHeight
+    bottomHeight,
+    isMonster: false
   };
 }
 
@@ -366,7 +357,14 @@ function getGameState(roomCode) {
     obstacles: room.obstacles,
     obstaclesPassed: room.obstaclesPassed,
     pickups: room.pickups || [],
-    spectatorCount: Object.keys(room.spectators || {}).length
+    spectatorCount: Object.keys(room.spectators || {}).length,
+    curse: room.curse ? {
+      state:     room.curse.state,
+      x:         room.curse.x,
+      y:         room.curse.y,
+      targetId:  room.curse.targetId,
+      carrierId: room.curse.carrierId
+    } : null
   };
 }
 
@@ -464,7 +462,9 @@ function updatePlayerPhysics(room) {
   for (const player of players) {
     if (!player.alive) continue;
 
-    player.velocityY += gravity * speedMultiplier;
+    const extraGravity = (room.curse && room.curse.state === 'attached' && room.curse.carrierId === player.id)
+      ? curseExtraGravity : 0;
+    player.velocityY += (gravity + extraGravity) * speedMultiplier;
     player.y += (player.velocityY + player.diveBurst) * speedMultiplier;
     player.diveBurst *= diveBurstDecay;
 
@@ -597,10 +597,12 @@ function applyPlayerCollisions(room, roomCode) {
         const recoilMult    = attackerRamBoosted ? ramBoostRecoilMultiplier    : 1;
 
         if (!victimShielded) {
-          victim.x += directionX * victimKnockback * knockbackMult;
-          victim.y += directionY * victimKnockback * knockbackMult;
-          victim.velocityX += directionX * 5 * knockbackMult;
-          victim.velocityY += directionY * 5 * knockbackMult;
+          const cursedVictimMult = (room.curse && room.curse.state === 'attached' && room.curse.carrierId === victim.id)
+            ? (1 + curseKnockbackBonus) : 1;
+          victim.x += directionX * victimKnockback * knockbackMult * cursedVictimMult;
+          victim.y += directionY * victimKnockback * knockbackMult * cursedVictimMult;
+          victim.velocityX += directionX * 5 * knockbackMult * cursedVictimMult;
+          victim.velocityY += directionY * 5 * knockbackMult * cursedVictimMult;
           keepPlayerInsideArena(victim);
         }
 
@@ -763,12 +765,287 @@ function updatePickups(room, roomCode) {
   }
 }
 
+function updateMonster(room, roomCode) {
+  const now = Date.now();
+
+  // If the current monster has scrolled off screen, clear it and reset the cooldown
+  const existingMonster = room.obstacles.find(o => o.isMonster);
+  if (existingMonster && existingMonster.x + existingMonster.width < 0) {
+    existingMonster.isMonster = false;
+    room.lastMonsterSpawn = now;
+    return;
+  }
+
+  // Try to spawn a new monster once the cooldown has elapsed
+  if (!existingMonster && now - room.lastMonsterSpawn > monsterSpawnInterval) {
+    // Pick a pipe that is on-screen but not yet crowding the players
+    const candidates = room.obstacles.filter(
+      o => o.x > gameWidth * 0.35 && o.x < gameWidth
+    );
+    if (candidates.length > 0) {
+      const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+      chosen.isMonster = true;
+      room.lastMonsterSpawn = now;
+      io.to(roomCode).emit("monsterActivated");
+    }
+    return;
+  }
+
+  if (!existingMonster) return;
+
+  // Chase the nearest alive player by extending the closest pipe wall toward them.
+  // "Nearest" is re-evaluated every tick so the target switches as players move.
+  const alivePlayers = getAlivePlayers(room);
+  if (alivePlayers.length === 0) return;
+
+  const monsterCenterX = existingMonster.x + obstacleWidth / 2;
+  const nearest = alivePlayers.reduce((best, p) => {
+    const dA = Math.abs((p.x + birdSize / 2) - monsterCenterX);
+    const dB = Math.abs((best.x + birdSize / 2) - monsterCenterX);
+    return dA < dB ? p : best;
+  });
+
+  const speedMultiplier = getSpeedMultiplier(room);
+  const step = monsterChaseSpeed * speedMultiplier;
+
+  const playerCenterY = nearest.y + birdSize / 2;
+  // Y coordinate of each pipe's threatening face (the edge that kills)
+  const topFaceY    = existingMonster.topHeight;                    // bottom face of top pipe
+  const bottomFaceY = gameHeight - existingMonster.bottomHeight;    // top face of bottom pipe
+
+  const distToTop    = playerCenterY - topFaceY;    // positive = player is below the top face
+  const distToBottom = bottomFaceY - playerCenterY; // positive = player is above the bottom face
+
+  if (distToTop <= distToBottom) {
+    // Player is closer to the top wall — extend the top pipe downward toward them
+    const newTop = existingMonster.topHeight + step;
+    if (gameHeight - newTop - existingMonster.bottomHeight >= monsterMinGap) {
+      existingMonster.topHeight = newTop;
+    }
+  } else {
+    // Player is closer to the bottom wall — extend the bottom pipe upward toward them
+    const newBottom = existingMonster.bottomHeight + step;
+    if (gameHeight - existingMonster.topHeight - newBottom >= monsterMinGap) {
+      existingMonster.bottomHeight = newBottom;
+    }
+  }
+}
+
+// ── Cursed Ball and Chain helpers ──────────────────────────────────────────────
+
+function findNearestAlivePlayerId(room, x, y) {
+  const alive = getAlivePlayers(room);
+  if (alive.length === 0) return null;
+  return alive.reduce((best, p) => {
+    const da = Math.hypot((p.x + birdSize / 2) - x, (p.y + birdSize / 2) - y);
+    const db = Math.hypot((best.x + birdSize / 2) - x, (best.y + birdSize / 2) - y);
+    return da < db ? p : best;
+  }).id;
+}
+
+function pointDistToSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq < 0.001) return Math.hypot(px - x1, py - y1);
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+// Returns true if any obstacle's solid section blocks the straight line between two points
+function curseBeamBlocked(cx, cy, tx, ty, obstacles) {
+  if (Math.abs(tx - cx) < 1) return false;
+  const minX = Math.min(cx, tx);
+  const maxX = Math.max(cx, tx);
+  for (const obs of obstacles) {
+    if (obs.x + obs.width <= minX || obs.x >= maxX) continue;
+    const sampleX = obs.x + obs.width / 2;
+    const t = (sampleX - cx) / (tx - cx);
+    if (t <= 0 || t >= 1) continue;
+    const lineY = cy + t * (ty - cy);
+    if (lineY < obs.topHeight) return true;
+    if (lineY > gameHeight - obs.bottomHeight) return true;
+  }
+  return false;
+}
+
+function updateCurse(room, roomCode) {
+  const now = Date.now();
+  const speedMultiplier = getSpeedMultiplier(room);
+
+  // ── Attached: follow carrier, detect death ─────────────────────────────────
+  if (room.curse && room.curse.state === 'attached') {
+    const carrier = room.players[room.curse.carrierId];
+    if (!carrier || !carrier.alive) {
+      room.curse = null;
+      room.lastCurseSpawn = now;
+      io.to(roomCode).emit('curseDespawned', { reason: 'death' });
+      return;
+    }
+    // Keep server position synced to carrier for clients
+    room.curse.x = carrier.x;
+    room.curse.y = carrier.y + birdSize;
+    return;
+  }
+
+  // ── Roaming: chase, beam checks, collision ─────────────────────────────────
+  if (room.curse && room.curse.state === 'roaming') {
+    // Refresh target if current one disappeared or died
+    if (!room.curse.targetId || !room.players[room.curse.targetId] || !room.players[room.curse.targetId].alive) {
+      room.curse.targetId = findNearestAlivePlayerId(room, room.curse.x, room.curse.y);
+      if (!room.curse.targetId) {
+        room.curse = null;
+        room.lastCurseSpawn = now;
+        io.to(roomCode).emit('curseDespawned', { reason: 'notarget' });
+        return;
+      }
+    }
+
+    const target    = room.players[room.curse.targetId];
+    const targetCX  = target.x + birdSize / 2;
+    const targetCY  = target.y + birdSize / 2;
+    const curseCX   = room.curse.x + curseBallSize / 2;
+    const curseCY   = room.curse.y + curseBallSize / 2;
+
+    // If a column now sits between curse and target → break lock, despawn
+    if (curseBeamBlocked(curseCX, curseCY, targetCX, targetCY, room.obstacles)) {
+      room.curse = null;
+      room.lastCurseSpawn = now;
+      io.to(roomCode).emit('curseDespawned', { reason: 'blocked' });
+      return;
+    }
+
+    // Any non-target player crossing the beam steals the lock
+    if (now - room.curse.lastTargetSwitch > curseTargetSwitchCooldown) {
+      for (const p of Object.values(room.players)) {
+        if (!p.alive || p.id === room.curse.targetId) continue;
+        const dist = pointDistToSegment(
+          p.x + birdSize / 2, p.y + birdSize / 2,
+          curseCX, curseCY, targetCX, targetCY
+        );
+        if (dist < curseBeamInterceptDist) {
+          room.curse.targetId      = p.id;
+          room.curse.lastTargetSwitch = now;
+          io.to(roomCode).emit('curseTargetChanged', { targetId: p.id });
+          break;
+        }
+      }
+    }
+
+    // Steer toward current target
+    const dx   = targetCX - curseCX;
+    const dy   = targetCY - curseCY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > 1) {
+      room.curse.velocityX += (dx / dist) * curseChaseAcceleration * speedMultiplier;
+      room.curse.velocityY += (dy / dist) * curseChaseAcceleration * speedMultiplier;
+    }
+
+    // Cap speed
+    const speed = Math.sqrt(room.curse.velocityX ** 2 + room.curse.velocityY ** 2);
+    if (speed > curseMaxSpeed * speedMultiplier) {
+      room.curse.velocityX = (room.curse.velocityX / speed) * curseMaxSpeed * speedMultiplier;
+      room.curse.velocityY = (room.curse.velocityY / speed) * curseMaxSpeed * speedMultiplier;
+    }
+
+    room.curse.x += room.curse.velocityX;
+    room.curse.y += room.curse.velocityY;
+
+    // Clamp inside visible arena (allow entering from right edge)
+    room.curse.x = Math.max(-curseBallSize, Math.min(gameWidth, room.curse.x));
+    room.curse.y = Math.max(vineDepth, Math.min(gameHeight - grassDepth - curseBallSize, room.curse.y));
+
+    // Check collision with alive players
+    for (const p of Object.values(room.players)) {
+      if (!p.alive) continue;
+      const colDist = Math.hypot(
+        (p.x + birdSize / 2) - (room.curse.x + curseBallSize / 2),
+        (p.y + birdSize / 2) - (room.curse.y + curseBallSize / 2)
+      );
+      if (colDist < (birdSize / 2 + curseBallSize / 2)) {
+        const hasActivePowerup =
+          (p.shieldExpiry   !== null && now < p.shieldExpiry) ||
+          (p.ramBoostExpiry !== null && now < p.ramBoostExpiry);
+        if (hasActivePowerup) {
+          // Powerup sacrificed to destroy the roaming curse
+          p.shieldExpiry   = null;
+          p.ramBoostExpiry = null;
+          room.curse = null;
+          room.lastCurseSpawn = now;
+          io.to(roomCode).emit('curseDestroyedByPowerup', { playerId: p.id });
+        } else {
+          room.curse.state     = 'attached';
+          room.curse.carrierId = p.id;
+          room.curse.targetId  = null;
+          room.curse.x         = p.x;
+          room.curse.y         = p.y + birdSize;
+          io.to(roomCode).emit('curseAttached', { carrierId: p.id });
+        }
+        return;
+      }
+    }
+    return;
+  }
+
+  // ── No curse: check spawn cooldown ────────────────────────────────────────
+  if (!room.curse && now - room.lastCurseSpawn > curseSpawnInterval) {
+    if (getAlivePlayers(room).length < 2) return;   // need 2+ players to be meaningful
+    const spawnY = randomNumber(vineDepth + curseBallSize, gameHeight - grassDepth - curseBallSize * 2);
+    room.curse = {
+      state:     'roaming',
+      x:         gameWidth + curseBallSize,
+      y:         spawnY,
+      velocityX: -0.6,
+      velocityY: 0,
+      targetId:  null,
+      carrierId: null,
+      lastTargetSwitch: now - curseTargetSwitchCooldown  // allow targeting immediately
+    };
+    room.curse.targetId = findNearestAlivePlayerId(room, room.curse.x, room.curse.y);
+    if (!room.curse.targetId) { room.curse = null; return; }
+    io.to(roomCode).emit('curseSpawned', { targetId: room.curse.targetId });
+  }
+}
+
+// Stomp transfer: cursed carrier above another bird and diving → pass the curse
+function checkCurseTransfer(room, roomCode) {
+  if (!room.curse || room.curse.state !== 'attached') return;
+  const carrier = room.players[room.curse.carrierId];
+  if (!carrier || !carrier.alive) return;
+
+  for (const p of Object.values(room.players)) {
+    if (!p.alive || p.id === room.curse.carrierId) continue;
+
+    const dx = (carrier.x + birdSize / 2) - (p.x + birdSize / 2);
+    const dy = (carrier.y + birdSize / 2) - (p.y + birdSize / 2);
+    if (Math.sqrt(dx * dx + dy * dy) >= birdSize) continue;
+
+    // Stomp: carrier center is above victim center (dy < 0) and moving downward.
+    // dy < -birdSize * 0.15 ensures "clearly above" even mid-overlap.
+    // velocityY > 0 confirms a downward trajectory — no strict angle requirement
+    // so side-dives with downward velocity still count, as the spec intended.
+    const isAbove    = dy < -(birdSize * 0.15);
+    const movingDown = carrier.velocityY > 0.8;
+
+    if (isAbove && movingDown) {
+      const fromId = room.curse.carrierId;
+      room.curse.carrierId = p.id;
+      room.curse.x = p.x;
+      room.curse.y = p.y + birdSize;
+      io.to(roomCode).emit('curseTransferred', { fromId, toId: p.id });
+      return;
+    }
+  }
+}
+
 function endRound(roomCode, winner) {
   const room = rooms[roomCode];
 
   if (!room) return;
 
   room.started = false;
+
+  // Clear curse immediately — round is over, show clean state in final broadcast
+  room.curse = null;
 
   if (room.gameLoop) {
     clearInterval(room.gameLoop);
@@ -847,9 +1124,12 @@ function startGameLoop(roomCode) {
     updatePlayerPhysics(activeRoom);
     updateBotAI(activeRoom);
     applyPlayerCollisions(activeRoom, roomCode);
+    updateMonster(activeRoom, roomCode);
     updateObstacles(activeRoom);
     updatePickups(activeRoom, roomCode);
     applyObstacleDeaths(activeRoom);
+    updateCurse(activeRoom, roomCode);
+    checkCurseTransfer(activeRoom, roomCode);
     broadcastGameState(roomCode);
     checkForRoundEnd(roomCode);
   }, 1000 / 60);
@@ -874,7 +1154,10 @@ io.on("connection", (socket) => {
       gameSpeed: clampGameSpeed(gameSpeed),
       targetScore: clampTargetScore(targetScore),
       pickups: [],
-      lastPickupSpawn: 0
+      lastPickupSpawn: 0,
+      lastMonsterSpawn: 0,
+      curse: null,
+      lastCurseSpawn: 0
     };
 
     addPlayerToRoom(socket, roomCode, nameCheck.name);
@@ -929,6 +1212,9 @@ io.on("connection", (socket) => {
 
     room.obstacles = createInitialObstacles();
     room.obstaclesPassed = 0;
+    room.lastMonsterSpawn = Date.now(); // delay first monster by one full interval
+    room.curse = null;                   // clear any lingering curse from previous round
+    room.lastCurseSpawn = Date.now();   // first curse spawns after curseSpawnInterval
 
     io.to(roomCode).emit("gameStarting", getGameState(roomCode));
 
@@ -1081,6 +1367,14 @@ io.on("connection", (socket) => {
         if (!room.started) {
           io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
         }
+
+        // Clean up curse if the carrier disconnected mid-game
+        if (room.curse && room.curse.carrierId === socket.id) {
+          room.curse = null;
+          room.lastCurseSpawn = Date.now();
+          io.to(roomCode).emit('curseDespawned', { reason: 'death' });
+        }
+
         broadcastGameState(roomCode);
         checkForRoundEnd(roomCode);
       }

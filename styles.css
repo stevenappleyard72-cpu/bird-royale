@@ -315,6 +315,157 @@ hr {
   z-index: 6;
 }
 
+/* ── Pipe Monster ─────────────────────────────────────────────────────────── */
+
+@keyframes monsterPulse {
+  0%, 100% { filter: brightness(1.05) drop-shadow(0 0 4px rgba(255, 50, 0, 0.55)); }
+  50%       { filter: brightness(1.18) drop-shadow(0 0 10px rgba(255, 50, 0, 0.95)); }
+}
+
+.monster-pipe {
+  animation: monsterPulse 1.2s ease-in-out infinite;
+}
+
+/* Row of eyes positioned at the gap-facing edge of each pipe segment */
+.monster-eyes {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  display: flex;
+  justify-content: space-around;
+  padding: 0 18%;
+  box-sizing: border-box;
+  z-index: 8;
+  pointer-events: none;
+}
+
+.monster-eyes-top    { bottom: 5px; align-items: flex-end; }
+.monster-eyes-bottom { top: 5px;    align-items: flex-start; }
+
+.monster-eye {
+  width: 38%;
+  aspect-ratio: 1;
+  background: #fff9e6;
+  border-radius: 50%;
+  border: 1.5px solid #2a1a00;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 3px rgba(255, 80, 0, 0.6);
+}
+
+.monster-pupil {
+  position: absolute;
+  width: 48%;
+  height: 48%;
+  background: #1a0800;
+  border-radius: 50%;
+  left: 26%;
+}
+
+/* Pupils point toward the gap — down for top pipe, up for bottom pipe */
+.monster-pupil-down { bottom: 6%; }
+.monster-pupil-up   { top: 6%; }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+/* ── Cursed Ball and Chain ────────────────────────────────────────────────── */
+
+@keyframes cursePulse {
+  0%, 100% { filter: brightness(1)   drop-shadow(0 0 4px rgba(255,60,0,0.6)); }
+  50%       { filter: brightness(1.4) drop-shadow(0 0 14px rgba(255,80,0,1.0)); }
+}
+
+@keyframes curseSwing {
+  0%, 100% { transform: translateX(-6px) translateY(0px)  rotate(-10deg); }
+  50%       { transform: translateX(6px)  translateY(3px)  rotate(10deg); }
+}
+
+@keyframes curseBeamFlicker {
+  0%  { opacity: 0.85; }
+  50% { opacity: 0.40; }
+}
+
+@keyframes curseTargetBob {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50%       { transform: translateX(-50%) translateY(-3px); }
+}
+
+/* Roaming iron ball */
+.curse-ball {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #7a4a36, #2e1408 55%, #0e0400);
+  border: 2px solid #6a2800;
+  box-shadow:
+    inset -3px -3px 6px rgba(0,0,0,0.75),
+    inset  2px  2px 4px rgba(130,55,0,0.28),
+    0 0  9px rgba(255,60,0,0.70),
+    0 0 20px rgba(200,30,0,0.38);
+  animation: cursePulse 1.3s ease-in-out infinite;
+  z-index: 12;
+  pointer-events: none;
+}
+
+/* Attached swinging iron ball */
+.curse-ball-attached {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #7a4a36, #2e1408 55%, #0e0400);
+  border: 2px solid #6a2800;
+  box-shadow:
+    inset -3px -3px 6px rgba(0,0,0,0.75),
+    0 0  6px rgba(255,60,0,0.55),
+    0 0 15px rgba(200,30,0,0.30);
+  animation: curseSwing 0.75s ease-in-out infinite, cursePulse 1.3s ease-in-out infinite;
+  z-index: 7;
+  pointer-events: none;
+}
+
+/* Short chain segment between carrier and ball */
+.curse-chain {
+  position: absolute;
+  width: 5px;
+  height: 14px;
+  background: repeating-linear-gradient(
+    to bottom,
+    #604a38 0px, #604a38 4px,
+    #3a2818 4px, #3a2818 8px
+  );
+  border-radius: 2px;
+  z-index: 8;
+  pointer-events: none;
+}
+
+/* Glowing targeting beam from curse to locked-on player */
+.curse-beam {
+  position: absolute;
+  height: 2px;
+  transform-origin: 0 50%;
+  background: linear-gradient(
+    to right,
+    rgba(255,70,0,0.90) 0%,
+    rgba(255,70,0,0.30) 65%,
+    transparent 100%
+  );
+  z-index: 9;
+  pointer-events: none;
+  animation: curseBeamFlicker 0.22s steps(2) infinite;
+}
+
+/* Skull icon floating above the targeted player */
+.curse-target-marker {
+  position: absolute;
+  font-size: 13px;
+  line-height: 1;
+  transform: translateX(-50%);
+  animation: curseTargetBob 0.45s ease-in-out infinite;
+  z-index: 14;
+  pointer-events: none;
+  filter: drop-shadow(0 0 3px rgba(255,60,0,0.85));
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 /* Grass boundary strip - tiles horizontally across bottom of arena */
 #grassStrip {
   position: absolute;

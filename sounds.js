@@ -204,6 +204,70 @@ const SoundEngine = (() => {
       tone(c, "sawtooth", 320, 0.22, 0.001, 0.18, t, 60);
       metalRing(c, 220, 0.28, 0.35, t);
       noiseBurst(c, 0.35, 0.12, 500, t);
+    },
+
+    // Ominous low growl when a pipe grows eyes and starts hunting you
+    monsterActivated() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      // Deep rumble that rises slightly — unsettling
+      tone(c, "sawtooth", 48,  0.28, 0.04, 0.6, t, 72);
+      tone(c, "sine",     36,  0.35, 0.02, 0.8, t, 42);
+      tone(c, "square",   92,  0.06, 0.08, 0.4, t, 60);
+      noiseBurst(c, 0.1, 0.5, 60, t);
+    },
+
+    // Ominous descending wail as the curse enters the arena
+    curseSpawn() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      tone(c, "sawtooth", 160, 0.20, 0.05, 0.85, t, 50);
+      tone(c, "sine",     90,  0.30, 0.02, 1.05, t, 38);
+      tone(c, "square",   220, 0.05, 0.10, 0.50, t, 75);
+      noiseBurst(c, 0.08, 0.65, 80, t);
+      metalRing(c, 120, 0.10, 0.7, t + 0.12);
+    },
+
+    // Short metallic chain rattle while roaming (throttled on client)
+    curseRattle() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      metalRing(c, 340, 0.10, 0.22, t);
+      noiseBurst(c, 0.07, 0.10, 1800, t);
+      tone(c, "square", 120, 0.03, 0.001, 0.10, t, 90);
+    },
+
+    // Heavy iron clunk when the ball latches onto a bird
+    curseAttach() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      metalRing(c, 80,  0.36, 0.65, t);
+      tone(c, "sawtooth", 55, 0.42, 0.001, 0.38, t, 26);
+      noiseBurst(c, 0.30, 0.22, 250, t);
+    },
+
+    // Clang + whoosh when the curse stomps onto a new victim
+    curseTransfer() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      metalRing(c, 180, 0.28, 0.45, t);
+      tone(c, "sawtooth", 900, 0.14, 0.001, 0.18, t, 60);
+      tone(c, "sine",     52,  0.30, 0.001, 0.32, t, 28);
+      noiseBurst(c, 0.22, 0.16, 600, t);
+    },
+
+    // Fading hiss when the curse vanishes from play
+    curseDespawn() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      tone(c, "sawtooth", 200, 0.14, 0.001, 0.55, t, 25);
+      noiseBurst(c, 0.12, 0.50, 300, t);
     }
   };
 })();
