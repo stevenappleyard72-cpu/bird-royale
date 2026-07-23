@@ -38,8 +38,8 @@ const attackerRecoil = 15;
 
 const shieldDuration = 6000;
 const shieldPickupSize = 28;
-const maxPickups = 1;
-const pickupSpawnInterval = 7000;
+const maxPickups = 3;
+const pickupSpawnInterval = 4000;
 
 const shockwavePickupSize = 28;
 const shockwaveRadius = 300;       // server units — covers most of the arena
@@ -50,9 +50,15 @@ const ramBoostPickupSize = 28;
 const ramBoostKnockbackMultiplier = 2.5; // victim flies much further
 const ramBoostRecoilMultiplier = 0.4;    // attacker barely bounces back
 
+// ── Ghost Mode ────────────────────────────────────────────────────────────
+const GHOST_SPOOK_RADIUS   = 90;   // server units — radius of a ghost spook
+const GHOST_SPOOK_FORCE    = 18;   // knockback applied to nearby birds
+const GHOST_SPOOK_COOLDOWN = 3500; // ms between ghost spook uses
+// ─────────────────────────────────────────────────────────────────────────
+
 // ── Cursed Ball and Chain ──────────────────────────────────────────────────
 const curseBallSize              = 20;    // server units (diameter)
-const curseSpawnInterval         = 22000; // ms after despawn before respawning
+const curseSpawnInterval         = 13000; // ms after despawn before respawning
 const curseChaseAcceleration     = 0.06;  // steering force per tick at 1× speed
 const curseMaxSpeed              = 1.8;   // terminal speed (server units/tick at 1×)
 const curseTargetSwitchCooldown  = 1200;  // ms between beam-intercept switches
@@ -61,7 +67,7 @@ const curseExtraGravity          = 0.10;  // extra gravity on carrier per tick
 const curseKnockbackBonus        = 0.30;  // 30 % more knockback received while cursed
 // ──────────────────────────────────────────────────────────────────────────
 
-const monsterSpawnInterval = 10000;  // ms between monster spawns (from despawn of last)
+const monsterSpawnInterval = 7000;   // ms between monster spawns (from despawn of last)
 const monsterChaseSpeed = 0.45;      // vertical units per tick at 1x speed — slow but unnerving
 const monsterMinGap = 115;           // minimum gap the monster must preserve while tracking
 
@@ -245,7 +251,12 @@ function addBotToRoom(roomCode) {
     alive: true,
     score: 0,
     shieldExpiry: null,
-    ramBoostExpiry: null
+    ramBoostExpiry: null,
+    ghostX: gameWidth / 2,
+    ghostY: gameHeight / 2,
+    ghostVX: 0,
+    ghostVY: 0,
+    ghostLastSpook: 0
   };
 }
 
@@ -351,7 +362,10 @@ function getGameState(roomCode) {
       return {
         ...p,
         shielded: p.shieldExpiry !== null && now < p.shieldExpiry,
-        ramBoosted: p.ramBoostExpiry !== null && now < p.ramBoostExpiry
+        ramBoosted: p.ramBoostExpiry !== null && now < p.ramBoostExpiry,
+        ghostX: p.ghostX !== undefined ? p.ghostX : gameWidth / 2,
+        ghostY: p.ghostY !== undefined ? p.ghostY : gameHeight / 2,
+        ghostSpookReady: !p.alive && p.id !== BOT_ID && (now - (p.ghostLastSpook || 0) >= GHOST_SPOOK_COOLDOWN)
       };
     }),
     obstacles: room.obstacles,
@@ -392,7 +406,12 @@ function addPlayerToRoom(socket, roomCode, playerName) {
     alive: true,
     score: 0,
     shieldExpiry: null,
-    ramBoostExpiry: null
+    ramBoostExpiry: null,
+    ghostX: gameWidth / 2,
+    ghostY: gameHeight / 2,
+    ghostVX: 0,
+    ghostVY: 0,
+    ghostLastSpook: 0
   };
 
   socket.join(roomCode);
@@ -410,6 +429,11 @@ function resetPlayersForRound(room) {
     players[i].alive = true;
     players[i].shieldExpiry = null;
     players[i].ramBoostExpiry = null;
+    players[i].ghostX = gameWidth / 2;
+    players[i].ghostY = gameHeight / 2;
+    players[i].ghostVX = 0;
+    players[i].ghostVY = 0;
+    players[i].ghostLastSpook = 0;
   }
 }
 
@@ -533,13 +557,23 @@ function applyObstacleDeaths(room) {
     const shielded = player.shieldExpiry !== null && now < player.shieldExpiry;
 
     if (playerHitsBoundary(player)) {
-      if (!shielded) player.alive = false;
+      if (!shielded) {
+        player.ghostX = player.x;
+        player.ghostY = Math.max(vineDepth, Math.min(gameHeight - birdSize - grassDepth, player.y));
+        player.ghostVX = player.velocityX * 0.3;
+        player.ghostVY = player.velocityY * 0.3;
+        player.alive = false;
+      }
       continue;
     }
 
     for (const obstacle of room.obstacles) {
       if (playerHitsObstacle(player, obstacle)) {
         if (!shielded) {
+          player.ghostX = player.x;
+          player.ghostY = Math.max(vineDepth, Math.min(gameHeight - birdSize - grassDepth, player.y));
+          player.ghostVX = player.velocityX * 0.3;
+          player.ghostVY = player.velocityY * 0.3;
           player.alive = false;
         }
         break;
@@ -1084,6 +1118,16 @@ function endRound(roomCode, winner) {
     obstacles: room.obstacles,
     obstaclesPassed: room.obstaclesPassed
   });
+
+  // Auto-restart next round after a short pause (unless the match just ended)
+  if (!matchWinner) {
+    if (room.autoRestartTimer) clearTimeout(room.autoRestartTimer);
+    room.autoRestartTimer = setTimeout(() => {
+      room.autoRestartTimer = null;
+      if (rooms[roomCode]) startRoundForRoom(roomCode);
+    }, 8000);
+    io.to(roomCode).emit("autoRestartCountdown", { seconds: 8 });
+  }
 }
 
 function checkForRoundEnd(roomCode) {
@@ -1104,6 +1148,63 @@ function checkForRoundEnd(roomCode) {
   }
 }
 
+// ── Ghost physics update ───────────────────────────────────────────────────
+function updateGhosts(room) {
+  const speedMultiplier = getSpeedMultiplier(room);
+  for (const player of Object.values(room.players)) {
+    if (player.alive || player.id === BOT_ID) continue;
+    player.ghostVY = (player.ghostVY || 0) + gravity * speedMultiplier * 0.75;
+    player.ghostY  = (player.ghostY  || gameHeight / 2) + player.ghostVY * speedMultiplier;
+    player.ghostX  = (player.ghostX  || gameWidth  / 2) + (player.ghostVX || 0) * speedMultiplier;
+    player.ghostVX = (player.ghostVX || 0) * horizontalDrag;
+    // Clamp inside arena
+    player.ghostX = Math.max(0, Math.min(gameWidth  - birdSize, player.ghostX));
+    player.ghostY = Math.max(vineDepth, Math.min(gameHeight - birdSize - grassDepth, player.ghostY));
+  }
+}
+
+// ── Speed ramp: gradually doubles base speed over 50s ─────────────────────
+function updateSpeedRamp(room) {
+  if (!room.roundStartTime || !room.baseGameSpeed) return;
+  const elapsed    = (Date.now() - room.roundStartTime) / 1000;
+  const rampFactor = Math.min(elapsed / 50, 1.0);
+  const maxRamp    = Math.min(room.baseGameSpeed, 15); // cap bonus at +15 units
+  room.gameSpeed   = room.baseGameSpeed + maxRamp * rampFactor;
+}
+
+// ── Shared round-start logic (used by host button AND auto-restart) ────────
+function startRoundForRoom(roomCode) {
+  const room = rooms[roomCode];
+  if (!room || room.started) return;
+
+  const playerCount = Object.keys(room.players).length;
+  if (playerCount === 1) {
+    addBotToRoom(roomCode);
+  }
+
+  resetPlayersForRound(room);
+  room.obstacles       = createInitialObstacles();
+  room.obstaclesPassed = 0;
+  room.pickups         = [];
+  room.lastPickupSpawn = 0;
+  room.lastMonsterSpawn = Date.now();
+  room.curse           = null;
+  room.lastCurseSpawn  = Date.now();
+  room.baseGameSpeed   = room.gameSpeed;   // snapshot for speed ramp
+  room.roundStartTime  = Date.now();
+
+  io.to(roomCode).emit("gameStarting", getGameState(roomCode));
+
+  setTimeout(() => {
+    if (!rooms[roomCode] || rooms[roomCode].started) return;
+    rooms[roomCode].started = true;
+    io.to(roomCode).emit("gameStarted", getGameState(roomCode));
+    startGameLoop(roomCode);
+    drainWaitingQueue(roomCode);
+  }, 4000);
+}
+// ──────────────────────────────────────────────────────────────────────────
+
 function startGameLoop(roomCode) {
   const room = rooms[roomCode];
 
@@ -1121,8 +1222,10 @@ function startGameLoop(roomCode) {
       return;
     }
 
+    updateSpeedRamp(activeRoom);
     updatePlayerPhysics(activeRoom);
     updateBotAI(activeRoom);
+    updateGhosts(activeRoom);
     updateCurse(activeRoom, roomCode);
     checkCurseTransfer(activeRoom, roomCode);
     applyPlayerCollisions(activeRoom, roomCode);
@@ -1157,7 +1260,10 @@ io.on("connection", (socket) => {
       lastPickupSpawn: 0,
       lastMonsterSpawn: 0,
       curse: null,
-      lastCurseSpawn: 0
+      lastCurseSpawn: 0,
+      autoRestartTimer: null,
+      baseGameSpeed: null,
+      roundStartTime: null
     };
 
     addPlayerToRoom(socket, roomCode, nameCheck.name);
@@ -1204,28 +1310,14 @@ io.on("connection", (socket) => {
     }
 
     if (room.started) return;
-    const playerCount = Object.keys(room.players).length;
-    if (playerCount === 1) {
-      addBotToRoom(roomCode);
+
+    // Cancel any pending auto-restart so we don't double-start
+    if (room.autoRestartTimer) {
+      clearTimeout(room.autoRestartTimer);
+      room.autoRestartTimer = null;
     }
-    resetPlayersForRound(room);
 
-    room.obstacles = createInitialObstacles();
-    room.obstaclesPassed = 0;
-    room.lastMonsterSpawn = Date.now(); // delay first monster by one full interval
-    room.curse = null;                   // clear any lingering curse from previous round
-    room.lastCurseSpawn = Date.now();   // first curse spawns after curseSpawnInterval
-
-    io.to(roomCode).emit("gameStarting", getGameState(roomCode));
-
-    setTimeout(() => {
-      if (!rooms[roomCode] || rooms[roomCode].started) return;
-
-      rooms[roomCode].started = true;
-      io.to(roomCode).emit("gameStarted", getGameState(roomCode));
-      startGameLoop(roomCode);
-      drainWaitingQueue(roomCode);
-    }, 4000);
+    startRoundForRoom(roomCode);
   });
 
   socket.on("requestRematch", ({ roomCode }) => {
@@ -1234,7 +1326,13 @@ io.on("connection", (socket) => {
     if (socket.id !== room.hostId) return;
     if (room.started) return;
 
-    // Admit waiting spectators as players
+    // Cancel any pending auto-restart
+    if (room.autoRestartTimer) {
+      clearTimeout(room.autoRestartTimer);
+      room.autoRestartTimer = null;
+    }
+
+    // Admit waiting spectators as players (with ghost fields)
     for (const specId in room.spectators) {
       const spec = room.spectators[specId];
       const playerCount = Object.keys(room.players).length;
@@ -1250,7 +1348,12 @@ io.on("connection", (socket) => {
         alive: true,
         score: 0,
         shieldExpiry: null,
-        ramBoostExpiry: null
+        ramBoostExpiry: null,
+        ghostX: gameWidth / 2,
+        ghostY: gameHeight / 2,
+        ghostVX: 0,
+        ghostVY: 0,
+        ghostLastSpook: 0
       };
     }
     room.spectators = {};
@@ -1335,6 +1438,45 @@ io.on("connection", (socket) => {
     applyInput(player, direction, room);
   });
 
+  // Ghost input: movement and spook for dead players
+  socket.on("ghostInput", ({ roomCode, direction }) => {
+    const room = rooms[roomCode];
+    if (!room || !room.players[socket.id]) return;
+    const player = room.players[socket.id];
+    if (player.alive || !room.started) return;
+    const now = Date.now();
+
+    if (direction === "spook") {
+      if (now - (player.ghostLastSpook || 0) < GHOST_SPOOK_COOLDOWN) return;
+      player.ghostLastSpook = now;
+      const spookCX = (player.ghostX || gameWidth  / 2) + birdSize / 2;
+      const spookCY = (player.ghostY || gameHeight / 2) + birdSize / 2;
+      for (const other of Object.values(room.players)) {
+        if (!other.alive) continue;
+        const dx   = (other.x + birdSize / 2) - spookCX;
+        const dy   = (other.y + birdSize / 2) - spookCY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < GHOST_SPOOK_RADIUS && dist > 0) {
+          const falloff = 1 - dist / GHOST_SPOOK_RADIUS;
+          other.velocityX += (dx / dist) * GHOST_SPOOK_FORCE * falloff;
+          other.velocityY += (dy / dist) * GHOST_SPOOK_FORCE * falloff;
+          keepPlayerInsideArena(other);
+        }
+      }
+      io.to(roomCode).emit("ghostSpook", {
+        ghostId: socket.id,
+        x: spookCX - birdSize / 2,
+        y: spookCY - birdSize / 2
+      });
+      return;
+    }
+
+    // Ghost directional movement
+    if (direction === "up")    { player.ghostVY = flapStrength; }
+    if (direction === "left")  { player.ghostVY = sideFlapStrength; player.ghostVX = (player.ghostVX || 0) - horizontalPush; }
+    if (direction === "right") { player.ghostVY = sideFlapStrength; player.ghostVX = (player.ghostVX || 0) + horizontalPush; }
+  });
+
   socket.on("disconnect", () => {
     // Free this player's name so others (or themselves on reconnect) can claim it
     delete waitingQueue[socket.id];  // also remove from quick-join queue if waiting
@@ -1356,6 +1498,7 @@ io.on("connection", (socket) => {
         if (Object.keys(room.players).length === 0) {
           if (room.gameLoop) clearInterval(room.gameLoop);
           if (room.victoryTimer) clearTimeout(room.victoryTimer);
+          if (room.autoRestartTimer) clearTimeout(room.autoRestartTimer);
           delete rooms[roomCode];
           return;
         }

@@ -40,6 +40,11 @@ const curseBallSize = 20;     // Must match server constant
 let leaderboardData = null;
 let lbCountdownInterval = null;
 
+let isGhost = false;                 // true when MY bird has died this round
+let ghostSpooks = [];                // visual ghost spook effects [{x,y,startTime}]
+let autoRestartEndTime = null;       // timestamp when server will auto-restart
+let autoRestartDisplayInterval = null;
+
 const serverWidth = 420;
 const serverHeight = 500;
 const birdSize = 40;
@@ -307,16 +312,23 @@ function updateSpectatorOverlay() {
 
   const scoresHtml = players.map(function (player) {
     const isMe = player.id === mySocketId;
-    const statusIcon = player.alive ? "🐦" : "💀";
+    const statusIcon = player.alive ? "🐦" : "�";
     const meClass = isMe ? " spectator-me" : "";
     return "<div class='spectator-score-row" + meClass + "' style='color:" + player.colour + "'>" +
       statusIcon + " " + player.name + " &mdash; " + player.score + "/" + targetScore +
       "</div>";
   }).join("");
 
+  const ghostControls = isGhost
+    ? "<div class='ghost-controls-hint'>Move: ↖ ↑ ↗ &nbsp;|&nbsp; ↓ to <strong>SPOOK</strong> nearby birds!</div>"
+    : "";
+
   overlay.innerHTML =
-    "<div class='spectator-title'>YOU'RE OUT!</div>" +
-    "<div class='spectator-watching'>Spectating...</div>" +
+    "<div class='spectator-title'>" + (isGhost ? "👻 YOU'RE A GHOST!" : "YOU'RE OUT!") + "</div>" +
+    (isGhost
+      ? "<div class='spectator-watching'>Haunt the arena &mdash; spook the survivors!</div>"
+      : "<div class='spectator-watching'>Spectating...</div>") +
+    ghostControls +
     "<div class='spectator-scores'>" + scoresHtml + "</div>";
 }
 
@@ -436,6 +448,7 @@ function drawPlayers() {
       createExplosion(player.id, player.x, player.y, player.colour);
       if (player.id === mySocketId) {
         SoundEngine.localDeath();
+        isGhost = true;
         if (!spectatingActive) showSpectatorOverlay();
       } else {
         SoundEngine.enemyDeath();
@@ -480,6 +493,42 @@ function drawPlayers() {
     bird.appendChild(name);
     container.appendChild(bird);
   }
+
+  // Draw ghost birds for dead players
+  for (let i = 0; i < players.length; i++) {
+    const player = players[i];
+    if (player.alive || player.ghostX === undefined || player.ghostX === null) continue;
+
+    const ghost = document.createElement("div");
+    ghost.className = "player-bird ghost-bird";
+    ghost.style.left   = scaleX(player.ghostX) + "px";
+    ghost.style.top    = scaleY(player.ghostY) + "px";
+    ghost.style.width  = scaleSize(birdSize) + "px";
+    ghost.style.height = scaleSize(birdSize) + "px";
+
+    const sprite = document.createElement("div");
+    sprite.className = "player-sprite ghost-sprite";
+    sprite.style.backgroundImage = "url('/assets/birds/" + player.colour + ".svg')";
+
+    const ghostName = document.createElement("div");
+    ghostName.className = "player-name ghost-name";
+    ghostName.textContent = "👻 " + player.name;
+
+    // Spook-ready indicator for my ghost
+    if (player.id === mySocketId && player.ghostSpookReady) {
+      const spookHint = document.createElement("div");
+      spookHint.className = "ghost-spook-ready";
+      spookHint.textContent = "↓ SPOOK";
+      ghost.appendChild(spookHint);
+    }
+
+    ghost.appendChild(sprite);
+    ghost.appendChild(ghostName);
+    container.appendChild(ghost);
+  }
+
+  // Draw ghost spook effects
+  drawGhostSpooks();
 
   // Draw explosions and shockwaves
   drawExplosions();
@@ -601,6 +650,64 @@ function drawShockwaves() {
   }
 }
 
+function drawGhostSpooks() {
+  const container = document.getElementById("playersContainer");
+  const now = Date.now();
+  const spookDuration = 600;
+
+  for (let i = ghostSpooks.length - 1; i >= 0; i--) {
+    const s = ghostSpooks[i];
+    const progress = Math.min((now - s.startTime) / spookDuration, 1);
+    if (progress >= 1) { ghostSpooks.splice(i, 1); continue; }
+
+    const maxRadius = scaleSize(90);
+    const radius    = maxRadius * progress;
+    const opacity   = (1 - progress) * 0.75;
+
+    const ring = document.createElement("div");
+    ring.style.position     = "absolute";
+    ring.style.borderRadius = "50%";
+    ring.style.border       = "3px solid rgba(200,255,200,0.9)";
+    ring.style.boxShadow    = "0 0 12px 4px rgba(180,255,180,0.6)";
+    ring.style.left         = scaleX(s.x) - radius + "px";
+    ring.style.top          = scaleY(s.y) - radius + "px";
+    ring.style.width        = radius * 2 + "px";
+    ring.style.height       = radius * 2 + "px";
+    ring.style.opacity      = opacity;
+    ring.style.pointerEvents = "none";
+    ring.style.zIndex       = "110";
+    container.appendChild(ring);
+  }
+}
+
+function drawScoreHud() {
+  const hud = document.getElementById("scoreHud");
+  if (!hud) return;
+  if (!gameRunning && !spectatingActive) {
+    hud.style.display = "none";
+    return;
+  }
+  hud.style.display = "flex";
+
+  const speed = Math.round(gameSpeedMultiplier * 10) / 10;
+  const speedLabel = gameSpeedMultiplier >= 1.5
+    ? "<span class='hud-speed hud-speed-fast'>⚡" + speed + "x</span>"
+    : "<span class='hud-speed'>⚡" + speed + "x</span>";
+
+  hud.innerHTML =
+    "<div class='hud-scores'>" +
+    players.map(function (p) {
+      const stars   = "★".repeat(p.score) + "☆".repeat(Math.max(0, targetScore - p.score));
+      const deadMark = p.alive ? "" : " 💀";
+      const isMe    = p.id === mySocketId;
+      return "<span class='hud-player" + (isMe ? " hud-me" : "") + (!p.alive ? " hud-dead" : "") +
+        "' style='color:" + p.colour + "'>" +
+        p.name + deadMark + " " + stars +
+        "</span>";
+    }).join("<span class='hud-sep'> · </span>") +
+    "</div>" + speedLabel;
+}
+
 function drawCurse() {
   if (!curse) return;
   const container = document.getElementById("playersContainer");
@@ -679,6 +786,7 @@ function drawGame() {
   drawPickups();
   drawObstacles();
   drawCurse();
+  drawScoreHud();
   if (spectatingActive) {
     updateSpectatorOverlay();
   }
@@ -766,6 +874,17 @@ function handleMove(direction) {
     return;
   }
 
+  // Ghost mode: my bird has died but the round is still live
+  if (isGhost) {
+    if (direction === "down") {
+      socket.emit("ghostInput", { roomCode: currentGameCode, direction: "spook" });
+    } else {
+      SoundEngine.flap();
+      socket.emit("ghostInput", { roomCode: currentGameCode, direction });
+    }
+    return;
+  }
+
   SoundEngine.flap();
   socket.emit("playerInput", {
     roomCode: currentGameCode,
@@ -836,7 +955,11 @@ socket.on("roomUpdated", function (data) {
   matchEnded = false;
   explosions = {};
   shockwaves = [];
+  ghostSpooks = [];
   previousPlayersState = {};
+  isGhost = false;
+  autoRestartEndTime = null;
+  if (autoRestartDisplayInterval) { clearInterval(autoRestartDisplayInterval); autoRestartDisplayInterval = null; }
 
   const winnerScene = document.getElementById("winnerScene");
   if (winnerScene) {
@@ -860,9 +983,13 @@ socket.on("gameStarting", function (data) {
   matchEnded = false;
   explosions = {};  // Clear explosions when new round starts
   shockwaves = [];
+  ghostSpooks = [];
   previousPlayersState = {};
   curse = null;
   lastCurseRattleTime = 0;
+  isGhost = false;
+  autoRestartEndTime = null;
+  if (autoRestartDisplayInterval) { clearInterval(autoRestartDisplayInterval); autoRestartDisplayInterval = null; }
   hideSpectatorOverlay();
 
   drawGame();
@@ -897,11 +1024,16 @@ socket.on("roundEnded", function (data) {
   gameWaitingToStart = false;
   countdownRunning = false;
   gameRunning = false;
+  isGhost = false;  // round is over — no longer a ghost
 
   updateLocalState(data);
 
   if (data.matchWinner) {
     matchEnded = true;
+    autoRestartEndTime = null;
+    if (autoRestartDisplayInterval) { clearInterval(autoRestartDisplayInterval); autoRestartDisplayInterval = null; }
+    window._lastRoundWinnerName = null;
+    window._lastRoundWinnerId   = null;
     document.getElementById("message").textContent = data.matchWinner.name + " wins the match!";
     SoundEngine.matchWin();
 
@@ -922,32 +1054,21 @@ socket.on("roundEnded", function (data) {
     matchEnded = false;
     gameWaitingToStart = true;
 
-    let message = "";
+    // Store round winner info for the auto-restart countdown display
+    window._lastRoundWinnerName = data.roundWinner ? data.roundWinner.name : null;
+    window._lastRoundWinnerId   = data.roundWinner ? data.roundWinner.id   : null;
 
     if (data.roundWinner) {
       SoundEngine.roundWin();
-      message = data.roundWinner.name + " wins the round! ⭐\n";
-
-      // Build scores list with star next to round winner
-      const scoresText = players.map(function (player) {
-        const star = player.id === data.roundWinner.id ? " ⭐" : "";
-        return player.name + " (" + player.score + "/" + data.targetScore + ")" + star;
-      }).join(" | ");
-
-      message += "Scores: " + scoresText + "\n";
-      message += "Waiting for host to start next round.";
-    } else {
-      message = "Everyone crashed! No winner this round.\n";
-
-      // Show all scores even with no winner
-      const scoresText = players.map(function (player) {
-        return player.name + " (" + player.score + "/" + data.targetScore + ")";
-      }).join(" | ");
-
-      message += "Scores: " + scoresText + "\n";
-      message += "Waiting for host to start next round.";
     }
-
+    // The message will be filled in by the autoRestartCountdown event handler.
+    // If auto-restart is not active (e.g. first round with host-starts), show a fallback.
+    const scoresText = players.map(function (player) {
+      return player.name + " (" + player.score + "/" + data.targetScore + ")";
+    }).join(" | ");
+    let message = data.roundWinner
+      ? data.roundWinner.name + " wins the round! ⭐\nScores: " + scoresText
+      : "Everyone crashed! No winner.\nScores: " + scoresText;
     document.getElementById("message").textContent = message;
   }
 
@@ -1031,6 +1152,50 @@ socket.on("curseDespawned", function () {
 
 socket.on("curseDestroyedByPowerup", function () {
   SoundEngine.curseDespawn();
+});
+
+socket.on("ghostSpook", function (data) {
+  if (!data) return;
+  ghostSpooks.push({ x: data.x, y: data.y, startTime: Date.now() });
+});
+
+socket.on("autoRestartCountdown", function (data) {
+  autoRestartEndTime = Date.now() + data.seconds * 1000;
+  if (autoRestartDisplayInterval) clearInterval(autoRestartDisplayInterval);
+
+  function tickCountdown() {
+    if (!gameWaitingToStart || matchEnded) return;
+    const remaining = Math.max(0, Math.ceil((autoRestartEndTime - Date.now()) / 1000));
+    const isHost = mySocketId === hostId;
+    const skipHint = isHost ? " (press a control to start now)" : "";
+    const winner = players.find(function (p) { return p.id === (window._lastRoundWinnerId || ""); });
+    let msg = "";
+    const scoresText = players.map(function (p) {
+      return p.name + " (" + p.score + "/" + targetScore + ")";
+    }).join(" | ");
+    if (window._lastRoundWinnerName) {
+      msg = window._lastRoundWinnerName + " wins the round! ⭐\nScores: " + scoresText + "\n";
+    } else {
+      msg = "Everyone crashed! No winner.\nScores: " + scoresText + "\n";
+    }
+    if (remaining > 0) {
+      msg += "Next round in " + remaining + "s" + skipHint + ".";
+    } else {
+      msg += "Starting...";
+    }
+    const el = document.getElementById("message");
+    if (el) el.textContent = msg;
+  }
+
+  tickCountdown();
+  autoRestartDisplayInterval = setInterval(function () {
+    if (!gameWaitingToStart || matchEnded || autoRestartEndTime === null) {
+      clearInterval(autoRestartDisplayInterval);
+      autoRestartDisplayInterval = null;
+      return;
+    }
+    tickCountdown();
+  }, 500);
 });
 
 socket.on("leaderboardUpdate", function (data) {
