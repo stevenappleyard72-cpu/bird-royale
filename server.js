@@ -1123,13 +1123,13 @@ function startGameLoop(roomCode) {
 
     updatePlayerPhysics(activeRoom);
     updateBotAI(activeRoom);
+    updateCurse(activeRoom, roomCode);
+    checkCurseTransfer(activeRoom, roomCode);
     applyPlayerCollisions(activeRoom, roomCode);
     updateMonster(activeRoom, roomCode);
     updateObstacles(activeRoom);
     updatePickups(activeRoom, roomCode);
     applyObstacleDeaths(activeRoom);
-    updateCurse(activeRoom, roomCode);
-    checkCurseTransfer(activeRoom, roomCode);
     broadcastGameState(roomCode);
     checkForRoundEnd(roomCode);
   }, 1000 / 60);
