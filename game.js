@@ -862,6 +862,7 @@ function handleMove(direction) {
 
   if (gameWaitingToStart && !countdownRunning) {
     if (mySocketId === hostId) {
+      hideRoundCountdown();
       requestStartGame();
     } else {
       document.getElementById("message").textContent = "Waiting for the game creator to start.";
@@ -958,7 +959,7 @@ socket.on("roomUpdated", function (data) {
   ghostSpooks = [];
   previousPlayersState = {};
   isGhost = false;
-  autoRestartEndTime = null;
+  hideRoundCountdown();  // clear between-rounds timer
   if (autoRestartDisplayInterval) { clearInterval(autoRestartDisplayInterval); autoRestartDisplayInterval = null; }
 
   const winnerScene = document.getElementById("winnerScene");
@@ -981,15 +982,14 @@ socket.on("gameStarting", function (data) {
   updateLocalState(data);
 
   matchEnded = false;
-  explosions = {};  // Clear explosions when new round starts
+  explosions = {};
   shockwaves = [];
   ghostSpooks = [];
   previousPlayersState = {};
   curse = null;
   lastCurseRattleTime = 0;
   isGhost = false;
-  autoRestartEndTime = null;
-  if (autoRestartDisplayInterval) { clearInterval(autoRestartDisplayInterval); autoRestartDisplayInterval = null; }
+  hideRoundCountdown();  // clear between-rounds timer
   hideSpectatorOverlay();
 
   drawGame();
@@ -1154,48 +1154,70 @@ socket.on("curseDestroyedByPowerup", function () {
   SoundEngine.curseDespawn();
 });
 
+function showRoundCountdown(seconds, winnerName) {
+  const el = document.getElementById("roundCountdown");
+  if (!el) return;
+  el.style.display = "flex";
+  const numEl = document.getElementById("rcNumber");
+  const subEl = document.getElementById("rcWinner");
+  if (numEl) numEl.textContent = seconds;
+  if (subEl) subEl.textContent = winnerName
+    ? winnerName + " wins the round! ⭐"
+    : "Everyone crashed — no winner.";
+}
+
+function hideRoundCountdown() {
+  const el = document.getElementById("roundCountdown");
+  if (el) el.style.display = "none";
+  autoRestartEndTime = null;
+  if (autoRestartDisplayInterval) {
+    clearInterval(autoRestartDisplayInterval);
+    autoRestartDisplayInterval = null;
+  }
+}
+
 socket.on("ghostSpook", function (data) {
   if (!data) return;
   ghostSpooks.push({ x: data.x, y: data.y, startTime: Date.now() });
+});
+
+socket.on("stompKill", function (data) {
+  if (!data) return;
+  // Flash "STOMP!" text briefly above the attacker's position
+  const attacker = players.find(function (p) { return p.id === data.attackerId; });
+  if (attacker) {
+    const el = document.createElement("div");
+    el.className = "stomp-label";
+    el.textContent = "STOMP!";
+    el.style.left = scaleX(attacker.x + birdSize / 2) + "px";
+    el.style.top  = scaleY(attacker.y - 24) + "px";
+    document.getElementById("playersContainer").appendChild(el);
+    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 900);
+  }
+  if (data.victimId === mySocketId) {
+    SoundEngine.localDeath();
+  } else if (data.attackerId === mySocketId) {
+    SoundEngine.impact();
+  } else {
+    SoundEngine.enemyDeath();
+  }
 });
 
 socket.on("autoRestartCountdown", function (data) {
   autoRestartEndTime = Date.now() + data.seconds * 1000;
   if (autoRestartDisplayInterval) clearInterval(autoRestartDisplayInterval);
 
-  function tickCountdown() {
-    if (!gameWaitingToStart || matchEnded) return;
-    const remaining = Math.max(0, Math.ceil((autoRestartEndTime - Date.now()) / 1000));
-    const isHost = mySocketId === hostId;
-    const skipHint = isHost ? " (press a control to start now)" : "";
-    const winner = players.find(function (p) { return p.id === (window._lastRoundWinnerId || ""); });
-    let msg = "";
-    const scoresText = players.map(function (p) {
-      return p.name + " (" + p.score + "/" + targetScore + ")";
-    }).join(" | ");
-    if (window._lastRoundWinnerName) {
-      msg = window._lastRoundWinnerName + " wins the round! ⭐\nScores: " + scoresText + "\n";
-    } else {
-      msg = "Everyone crashed! No winner.\nScores: " + scoresText + "\n";
-    }
-    if (remaining > 0) {
-      msg += "Next round in " + remaining + "s" + skipHint + ".";
-    } else {
-      msg += "Starting...";
-    }
-    const el = document.getElementById("message");
-    if (el) el.textContent = msg;
-  }
-
-  tickCountdown();
-  autoRestartDisplayInterval = setInterval(function () {
+  function tick() {
     if (!gameWaitingToStart || matchEnded || autoRestartEndTime === null) {
-      clearInterval(autoRestartDisplayInterval);
-      autoRestartDisplayInterval = null;
+      hideRoundCountdown();
       return;
     }
-    tickCountdown();
-  }, 500);
+    const remaining = Math.max(0, Math.ceil((autoRestartEndTime - Date.now()) / 1000));
+    showRoundCountdown(remaining, window._lastRoundWinnerName);
+  }
+
+  tick();
+  autoRestartDisplayInterval = setInterval(tick, 400);
 });
 
 socket.on("leaderboardUpdate", function (data) {

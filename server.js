@@ -33,7 +33,7 @@ const obstacleSpacing = 170;
 const obstacleSpeed = 2;
 const targetObstacleCount = 4;
 
-const victimKnockback = 45;
+const victimKnockback = 65;
 const attackerRecoil = 15;
 
 const shieldDuration = 6000;
@@ -51,9 +51,9 @@ const ramBoostKnockbackMultiplier = 2.5; // victim flies much further
 const ramBoostRecoilMultiplier = 0.4;    // attacker barely bounces back
 
 // ── Ghost Mode ────────────────────────────────────────────────────────────
-const GHOST_SPOOK_RADIUS   = 90;   // server units — radius of a ghost spook
-const GHOST_SPOOK_FORCE    = 18;   // knockback applied to nearby birds
-const GHOST_SPOOK_COOLDOWN = 3500; // ms between ghost spook uses
+const GHOST_SPOOK_RADIUS   = 110;  // server units — radius of a ghost spook
+const GHOST_SPOOK_FORCE    = 35;   // knockback applied to nearby birds
+const GHOST_SPOOK_COOLDOWN = 2500; // ms between ghost spook uses
 // ─────────────────────────────────────────────────────────────────────────
 
 // ── Cursed Ball and Chain ──────────────────────────────────────────────────
@@ -317,13 +317,27 @@ function updateBotAI(room) {
   }
 }
 
-function createObstacle(x) {
-  let topHeight = randomNumber(50, 150);
-  let bottomHeight = randomNumber(50, 150);
+function createObstacle(x, room) {
+  // Gap narrows over time: maxCombined rises from 250 → 330 over 45 seconds
+  let maxCombined = gameHeight / 2;
+  if (room && room.roundStartTime) {
+    const elapsed = (Date.now() - room.roundStartTime) / 1000;
+    const t = Math.min(elapsed / 45, 1.0);
+    maxCombined = (gameHeight / 2) + 80 * t;
+  }
 
-  while (topHeight + bottomHeight > gameHeight / 2) {
-    topHeight = randomNumber(50, 150);
+  let topHeight, bottomHeight;
+  let attempts = 0;
+  do {
+    topHeight    = randomNumber(50, 150);
     bottomHeight = randomNumber(50, 150);
+    attempts++;
+  } while (topHeight + bottomHeight > maxCombined && attempts < 30);
+
+  // Hard fallback to avoid infinite loop if maxCombined is tight
+  if (topHeight + bottomHeight > maxCombined) {
+    topHeight    = Math.floor(maxCombined / 2);
+    bottomHeight = maxCombined - topHeight;
   }
 
   return {
@@ -336,12 +350,12 @@ function createObstacle(x) {
   };
 }
 
-function createInitialObstacles() {
+function createInitialObstacles(room) {
   const obstacles = [];
 
   for (let i = 0; i < targetObstacleCount; i++) {
     obstacles.push(
-      createObstacle((gameWidth - obstacleWidth) + i * obstacleSpacing)
+      createObstacle((gameWidth - obstacleWidth) + i * obstacleSpacing, room)
     );
   }
 
@@ -515,7 +529,7 @@ function updateObstacles(room) {
     room.obstaclesPassed++;
 
     const lastObstacle = room.obstacles[room.obstacles.length - 1];
-    room.obstacles.push(createObstacle(lastObstacle.x + obstacleSpacing));
+    room.obstacles.push(createObstacle(lastObstacle.x + obstacleSpacing, room));
   }
 }
 
@@ -629,6 +643,21 @@ function applyPlayerCollisions(room, roomCode) {
 
         const knockbackMult = attackerRamBoosted ? ramBoostKnockbackMultiplier : 1;
         const recoilMult    = attackerRamBoosted ? ramBoostRecoilMultiplier    : 1;
+
+        // ── Stomp kill: attacker diving hard from above ───────────────────
+        const attackerDiving = attacker.velocityY > 7;
+        const attackerAbove  = (attacker.y + birdSize / 2) < (victim.y + birdSize / 2);
+        if (attackerDiving && attackerAbove && !victimShielded) {
+          victim.ghostX  = victim.x;
+          victim.ghostY  = Math.max(vineDepth, Math.min(gameHeight - birdSize - grassDepth, victim.y));
+          victim.ghostVX = victim.velocityX * 0.3;
+          victim.ghostVY = 2;
+          victim.alive   = false;
+          attacker.velocityY = flapStrength * 0.7;  // bounce attacker up
+          io.to(roomCode).emit("stompKill", { attackerId: attacker.id, victimId: victim.id });
+          continue;
+        }
+        // ─────────────────────────────────────────────────────────────────
 
         if (!victimShielded) {
           const cursedVictimMult = (room.curse && room.curse.state === 'attached' && room.curse.carrierId === victim.id)
@@ -1183,15 +1212,15 @@ function startRoundForRoom(roomCode) {
   }
 
   resetPlayersForRound(room);
-  room.obstacles       = createInitialObstacles();
+  room.roundStartTime  = Date.now();       // set first so createObstacle can use it
+  room.baseGameSpeed   = room.gameSpeed;   // snapshot for speed ramp
+  room.obstacles       = createInitialObstacles(room);
   room.obstaclesPassed = 0;
   room.pickups         = [];
   room.lastPickupSpawn = 0;
   room.lastMonsterSpawn = Date.now();
   room.curse           = null;
   room.lastCurseSpawn  = Date.now();
-  room.baseGameSpeed   = room.gameSpeed;   // snapshot for speed ramp
-  room.roundStartTime  = Date.now();
 
   io.to(roomCode).emit("gameStarting", getGameState(roomCode));
 

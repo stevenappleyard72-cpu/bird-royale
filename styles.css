@@ -466,6 +466,60 @@ hr {
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 
+.stomp-label {\n  position: absolute;\n  font-size: 14px;\n  font-weight: bold;\n  color: #ff4444;\n  text-shadow: 1px 1px 0 #000, 0 0 8px rgba(255,100,0,0.8);\n  pointer-events: none;\n  z-index: 120;\n  transform: translateX(-50%);\n  animation: stompFade 0.9s ease-out forwards;\n  white-space: nowrap;\n}\n\n@keyframes stompFade {\n  0%   { opacity: 1;   transform: translateX(-50%) translateY(0)    scale(1.3); }\n  40%  { opacity: 1;   transform: translateX(-50%) translateY(-14px) scale(1.1); }\n  100% { opacity: 0;   transform: translateX(-50%) translateY(-28px) scale(0.9); }\n}\n\n/* ── Between-rounds countdown overlay ───────────────────────────────────── */
+
+#roundCountdown {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 195;
+  pointer-events: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.52);
+}
+
+.rc-label {
+  font-size: 13px;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.rc-number {
+  font-size: 110px;
+  font-weight: bold;
+  color: #FFD700;
+  line-height: 1;
+  text-shadow:
+    0 0 30px rgba(255, 215, 0, 0.9),
+    0 0 60px rgba(255, 165, 0, 0.5),
+    3px 3px 0 rgba(0, 0, 0, 0.6);
+  animation: rcPulse 1s ease-in-out infinite;
+}
+
+.rc-sub {
+  font-size: 15px;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.85);
+  margin-top: 10px;
+  text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+  max-width: 90%;
+  text-align: center;
+  line-height: 1.4;
+}
+
+@keyframes rcPulse {
+  0%, 100% { transform: scale(1);    opacity: 1; }
+  50%       { transform: scale(1.06); opacity: 0.85; }
+}
+
 /* ── Score HUD (in-game overlay) ─────────────────────────────────────────── */
 
 #scoreHud {
