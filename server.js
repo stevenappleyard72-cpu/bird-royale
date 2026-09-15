@@ -472,10 +472,8 @@ function keepPlayerInsideArena(player) {
 }
 
 function applyInput(player, direction, room) {
-  const speedMultiplier = getSpeedMultiplier(room);
-
   if (direction === "up") {
-    player.velocityY = flapStrength;
+    player.velocityY = flapStrength - 0.4;
   }
 
   if (direction === "left") {
@@ -489,7 +487,27 @@ function applyInput(player, direction, room) {
   }
 
   if (direction === "down") {
-  player.velocityY = Math.max(player.velocityY, 10);
+    player.velocityY = Math.max(player.velocityY, 7.5);
+  }
+
+  if (direction === "up-left") {
+    player.velocityY = flapStrength * 0.92;
+    player.velocityX -= horizontalPush * 0.82;
+  }
+
+  if (direction === "up-right") {
+    player.velocityY = flapStrength * 0.92;
+    player.velocityX += horizontalPush * 0.82;
+  }
+
+  if (direction === "down-left") {
+    player.velocityY = Math.max(player.velocityY, 6.2);
+    player.velocityX -= horizontalPush * 0.82;
+  }
+
+  if (direction === "down-right") {
+    player.velocityY = Math.max(player.velocityY, 6.2);
+    player.velocityX += horizontalPush * 0.82;
   }
 }
 
@@ -1504,6 +1522,10 @@ io.on("connection", (socket) => {
     if (direction === "up")    { player.ghostVY = flapStrength; }
     if (direction === "left")  { player.ghostVY = sideFlapStrength; player.ghostVX = (player.ghostVX || 0) - horizontalPush; }
     if (direction === "right") { player.ghostVY = sideFlapStrength; player.ghostVX = (player.ghostVX || 0) + horizontalPush; }
+    if (direction === "up-left") { player.ghostVY = flapStrength * 0.92; player.ghostVX = (player.ghostVX || 0) - horizontalPush * 0.82; }
+    if (direction === "up-right") { player.ghostVY = flapStrength * 0.92; player.ghostVX = (player.ghostVX || 0) + horizontalPush * 0.82; }
+    if (direction === "down-left") { player.ghostVY = Math.max(player.ghostVY || 0, 6.2); player.ghostVX = (player.ghostVX || 0) - horizontalPush * 0.82; }
+    if (direction === "down-right") { player.ghostVY = Math.max(player.ghostVY || 0, 6.2); player.ghostVX = (player.ghostVX || 0) + horizontalPush * 0.82; }
   });
 
   socket.on("disconnect", () => {

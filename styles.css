@@ -133,6 +133,7 @@ hr {
   position: relative;
   overflow: hidden;
   display: none;
+  touch-action: none;
 }
 
 #countdown {
@@ -178,66 +179,6 @@ hr {
   background: #ddd;
   transform: none;
   box-shadow: none;
-}
-
-#controls {
-  width: 420px;
-  margin: 0 auto 30px auto;
-  padding: 0;
-  background: #f8f8f8;
-  border-left: 4px solid black;
-  border-right: 4px solid black;
-  border-bottom: 4px solid black;
-  border-top: none;
-  border-radius: 0 0 12px 12px;
-  display: none;
-}
-
-.control-row {
-  display: flex;
-  justify-content: stretch;
-  gap: 0;
-  margin: 0;
-  height: 140px;
-}
-
-.control-middle {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  flex: 1;
-}
-
-.control-left,
-.control-right {
-  flex: 1;
-  padding: 0;
-  margin: 0;
-  border-radius: 0;
-  border: 2px solid black;
-}
-
-.control-up,
-.control-down {
-  flex: 1;
-  padding: 0;
-  margin: 0;
-  border-radius: 0;
-  border: 2px solid black;
-  width: 100%;
-  height: 100%;
-}
-
-.control-button {
-  font-size: 40px;
-  border: 2px solid black;
-  background: white;
-  touch-action: manipulation;
-  user-select: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 #message {
@@ -1165,7 +1106,6 @@ hr {
 
   .panel,
   #gameArea,
-  #controls,
   #leaderboardPanel {
     width: 94vw;
     box-sizing: border-box;
@@ -1178,25 +1118,5 @@ hr {
 
   #gameArea {
     height: 62vh;
-  }
-
-  input {
-    width: 85%;
-    font-size: 16px;
-    padding: 10px 12px;
-  }
-
-  button {
-    font-size: 16px;
-    padding: 12px 20px;
-    margin: 8px 4px;
-  }
-
-  .control-row {
-    height: 120px;
-  }
-
-  .control-button {
-    font-size: 36px;
   }
 } 

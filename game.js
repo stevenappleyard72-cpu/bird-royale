@@ -226,7 +226,6 @@ function hideWinnerScene() {
   // Return to lobby
   document.getElementById("lobby").style.display = "block";
   document.getElementById("gameArea").style.display = "none";
-  document.getElementById("controls").style.display = "none";
   document.getElementById("muteBar").style.display = "none";
   document.getElementById("message").textContent = "";
 }
@@ -320,7 +319,7 @@ function updateSpectatorOverlay() {
   }).join("");
 
   const ghostControls = isGhost
-    ? "<div class='ghost-controls-hint'>Move: ↖ ↑ ↗ &nbsp;|&nbsp; ↓ to <strong>SPOOK</strong> nearby birds!</div>"
+    ? "<div class='ghost-controls-hint'>Tap around your ghost to drift. Tap below to <strong>SPOOK</strong> nearby birds.</div>"
     : "";
 
   overlay.innerHTML =
@@ -420,7 +419,6 @@ function joinGame() {
 function showGameArea() {
   document.getElementById("gameArea").style.display = "block";
   document.getElementById("muteBar").style.display = "block";
-  document.getElementById("controls").style.display = "block";
 }
 
 function updateLocalState(data) {
@@ -817,7 +815,7 @@ function showWaitingMessage() {
     ". Speed: " + gameSpeed + " (" + gameSpeedMultiplier.toFixed(1) + "x). " +
     "Target: " + targetScore + " rounds." + specCount + " " +
     (isHost
-      ? "You are the host. Press any movement control to start."
+      ? "You are the host. Tap or press any movement direction to start."
       : "Waiting for the host to start.");
 }
 
@@ -893,6 +891,62 @@ function handleMove(direction) {
   });
 }
 
+const pointerDirections = [
+  "right",
+  "up-right",
+  "up",
+  "up-left",
+  "left",
+  "down-left",
+  "down",
+  "down-right"
+];
+
+function getMyPlayerState() {
+  return players.find(function (player) {
+    return player.id === mySocketId;
+  }) || null;
+}
+
+function resolvePointerDirection(event) {
+  const gameArea = document.getElementById("gameArea");
+  const me = getMyPlayerState();
+
+  if (!gameArea || !me) return null;
+
+  const rect = gameArea.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return null;
+
+  const areaX = ((event.clientX - rect.left) / rect.width) * serverWidth;
+  const areaY = ((event.clientY - rect.top) / rect.height) * serverHeight;
+  const birdX = (me.alive ? me.x : (me.ghostX !== undefined ? me.ghostX : me.x)) + birdSize / 2;
+  const birdY = (me.alive ? me.y : (me.ghostY !== undefined ? me.ghostY : me.y)) + birdSize / 2;
+  const dx = areaX - birdX;
+  const dy = birdY - areaY;
+
+  if (dx === 0 && dy === 0) {
+    return "up";
+  }
+
+  const angle = Math.atan2(dy, dx);
+  const sector = Math.round(angle / (Math.PI / 4));
+  return pointerDirections[(sector + 8) % 8];
+}
+
+function handleGameAreaPointerDown(event) {
+  if (event.button !== undefined && event.button !== 0) {
+    return;
+  }
+
+  const direction = resolvePointerDirection(event);
+  if (!direction) return;
+
+  event.preventDefault();
+  handleMove(direction);
+}
+
+document.getElementById("gameArea").addEventListener("pointerdown", handleGameAreaPointerDown);
+
 document.addEventListener("keydown", function (event) {
   const activeElement = document.activeElement;
 
@@ -916,7 +970,9 @@ document.addEventListener("keydown", function (event) {
 
   const movementKeys = [
     "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
-    "KeyW", "KeyA", "KeyS", "KeyD", "Space"
+    "KeyW", "KeyA", "KeyS", "KeyD",
+    "KeyQ", "KeyE", "KeyZ", "KeyC",
+    "Space"
   ];
 
   if (movementKeys.includes(event.code)) {
@@ -927,12 +983,28 @@ document.addEventListener("keydown", function (event) {
     handleMove("up");
   }
 
+  if (event.code === "KeyQ") {
+    handleMove("up-left");
+  }
+
+  if (event.code === "KeyE") {
+    handleMove("up-right");
+  }
+
   if (event.code === "ArrowLeft" || event.code === "KeyA") {
     handleMove("left");
   }
 
+  if (event.code === "KeyZ") {
+    handleMove("down-left");
+  }
+
   if (event.code === "ArrowRight" || event.code === "KeyD") {
     handleMove("right");
+  }
+
+  if (event.code === "KeyC") {
+    handleMove("down-right");
   }
 
   if (event.code === "ArrowDown" || event.code === "KeyS") {
