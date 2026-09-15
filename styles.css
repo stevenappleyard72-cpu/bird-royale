@@ -491,6 +491,13 @@ hr {
   line-height: 1.3;
 }
 
+.hud-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+
 .hud-scores {
   display: flex;
   flex-wrap: wrap;
@@ -531,6 +538,28 @@ hr {
   color: #ffdd55;
   text-shadow: 0 0 6px rgba(255,200,0,0.8);
   animation: hudSpeedPulse 0.6s ease-in-out infinite;
+}
+
+.hud-phase {
+  font-size: 10px;
+  color: rgba(200, 255, 220, 0.9);
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.25);
+  letter-spacing: 1px;
+}
+
+.hud-phase.hud-phase-danger {
+  color: #ffcf7a;
+  background: rgba(120, 20, 0, 0.42);
+  text-shadow: 0 0 6px rgba(255, 120, 0, 0.7);
+}
+
+.hud-health {
+  color: rgba(255,255,255,0.88);
+  font-size: 10px;
+  margin-left: 2px;
 }
 
 @keyframes hudSpeedPulse {
@@ -640,6 +669,34 @@ hr {
   white-space: nowrap;
 }
 
+.player-healthbar {
+  position: absolute;
+  left: -2px;
+  bottom: -9px;
+  width: 44px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255,255,255,0.35);
+  box-sizing: border-box;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.player-healthfill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2de38c 0%, #8fff8f 100%);
+}
+
+.player-healthfill.player-healthfill-med {
+  background: linear-gradient(90deg, #ffd24d 0%, #ff9f1a 100%);
+}
+
+.player-healthfill.player-healthfill-low {
+  background: linear-gradient(90deg, #ff6b6b 0%, #ff2d2d 100%);
+}
+
 .explosion {
   pointer-events: none;
   z-index: 100;
@@ -713,6 +770,29 @@ hr {
   box-sizing: border-box;
   animation: ramBoostPickupPulse 0.5s ease-in-out infinite;
   z-index: 90;
+}
+
+.crown-pickup {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff7bf, #ffd54f 45%, #c79200 100%);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 14px 5px rgba(255, 215, 0, 0.9);
+  pointer-events: none;
+  box-sizing: border-box;
+  animation: crownPickupPulse 0.7s ease-in-out infinite;
+  z-index: 92;
+  color: #fff6d0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  text-shadow: 0 0 5px rgba(0,0,0,0.6);
+}
+
+@keyframes crownPickupPulse {
+  0%, 100% { transform: scale(1) rotate(0deg); box-shadow: 0 0 14px 5px rgba(255, 215, 0, 0.9); }
+  50% { transform: scale(1.14) rotate(18deg); box-shadow: 0 0 24px 10px rgba(255, 235, 120, 1); }
 }
 
 @keyframes ramBoostPickupPulse {

@@ -32,6 +32,9 @@ let spectatingActive = false;
 let spectatorJoining = false;  // True when we joined mid-game as spectator
 let spectatorCount = 0;
 let pickups = [];
+let roundTimeLeft = 0;
+let roundPhase = "lobby";
+let suddenDeath = false;
 
 let curse = null;              // Current curse state from server (null | { state, x, y, targetId, carrierId })
 let lastCurseRattleTime = 0;  // Throttle rattle sound
@@ -431,6 +434,9 @@ function updateLocalState(data) {
   targetScore = data.targetScore || targetScore;
   pickups = data.pickups || [];
   spectatorCount = data.spectatorCount || 0;
+  roundTimeLeft = data.roundTimeLeft || 0;
+  roundPhase = data.roundPhase || roundPhase;
+  suddenDeath = Boolean(data.suddenDeath);
   curse = data.curse !== undefined ? data.curse : null;
 }
 
@@ -475,6 +481,14 @@ function drawPlayers() {
     name.className = "player-name";
     name.textContent = player.name;
 
+    const healthBar = document.createElement("div");
+    healthBar.className = "player-healthbar";
+    const healthFill = document.createElement("div");
+    const healthPercent = Math.max(0, Math.min(100, Math.round(player.health || 0)));
+    healthFill.className = "player-healthfill" + (healthPercent < 35 ? " player-healthfill-low" : healthPercent < 70 ? " player-healthfill-med" : "");
+    healthFill.style.width = healthPercent + "%";
+    healthBar.appendChild(healthFill);
+
     if (player.shielded) {
       const ring = document.createElement("div");
       ring.className = "shield-ring";
@@ -489,6 +503,7 @@ function drawPlayers() {
 
     bird.appendChild(sprite);
     bird.appendChild(name);
+    bird.appendChild(healthBar);
     container.appendChild(bird);
   }
 
@@ -611,6 +626,9 @@ function drawPickups() {
       el.className = "shockwave-pickup";
     } else if (pickup.type === "ramboost") {
       el.className = "ramboost-pickup";
+    } else if (pickup.type === "crown") {
+      el.className = "crown-pickup";
+      el.textContent = "★";
     } else {
       continue;
     }
@@ -692,18 +710,23 @@ function drawScoreHud() {
     ? "<span class='hud-speed hud-speed-fast'>⚡" + speed + "x</span>"
     : "<span class='hud-speed'>⚡" + speed + "x</span>";
 
+  const phaseLabel = roundPhase === "suddenDeath"
+    ? "<span class='hud-phase hud-phase-danger'>FINAL RUSH " + roundTimeLeft + "s</span>"
+    : roundTimeLeft > 0
+      ? "<span class='hud-phase'>RUSH " + roundTimeLeft + "s</span>"
+      : "<span class='hud-phase'>BUILDING</span>";
+
   hud.innerHTML =
     "<div class='hud-scores'>" +
     players.map(function (p) {
-      const stars   = "★".repeat(p.score) + "☆".repeat(Math.max(0, targetScore - p.score));
-      const deadMark = p.alive ? "" : " 💀";
+      const health = Math.max(0, Math.round(p.health || 0));
       const isMe    = p.id === mySocketId;
       return "<span class='hud-player" + (isMe ? " hud-me" : "") + (!p.alive ? " hud-dead" : "") +
         "' style='color:" + p.colour + "'>" +
-        p.name + deadMark + " " + stars +
+        p.name + " P:" + (p.points || 0) + " <span class='hud-health'>HP:" + health + "%</span>" +
         "</span>";
     }).join("<span class='hud-sep'> · </span>") +
-    "</div>" + speedLabel;
+    "</div><div class='hud-right'>" + phaseLabel + speedLabel + "</div>";
 }
 
 function drawCurse() {
@@ -797,9 +820,11 @@ function updatePlayerList() {
     "<h3>Players</h3>" +
     players.map(function (player) {
       const aliveText = player.alive ? "" : " (out)";
-      const scoreText = player.score !== undefined ? " (" + player.score + "/" + targetScore + ")" : "";
+      const pointsText = " " + (player.points || 0) + " pts";
+      const healthText = " " + Math.round(player.health || 0) + "% hp";
+      const winText = player.score !== undefined ? " · " + player.score + " match wins" : "";
       return "<div style='color:" + player.colour + "'>" +
-        player.name + scoreText + aliveText +
+        player.name + pointsText + healthText + winText + aliveText +
         "</div>";
     }).join("");
 }
@@ -815,7 +840,7 @@ function showWaitingMessage() {
     ". Speed: " + gameSpeed + " (" + gameSpeedMultiplier.toFixed(1) + "x). " +
     "Target: " + targetScore + " rounds." + specCount + " " +
     (isHost
-      ? "You are the host. Tap or press any movement direction to start."
+      ? "You are the host. Tap or press any movement direction to start. Round points decide each winner."
       : "Waiting for the host to start.");
 }
 
@@ -1118,7 +1143,7 @@ socket.on("roundEnded", function (data) {
     // they can't start the round and their flow is handled via spectatorsCanJoin.
     // Just update the score display and preserve the spectating message.
     const scoresText = players.map(function (player) {
-      return player.name + " (" + player.score + "/" + data.targetScore + ")";
+      return player.name + " (" + (player.points || 0) + " pts, " + player.score + "/" + data.targetScore + " wins)";
     }).join(" | ");
     document.getElementById("message").textContent =
       "Spectating... " + scoresText + " — waiting for the match to end.";
@@ -1136,11 +1161,11 @@ socket.on("roundEnded", function (data) {
     // The message will be filled in by the autoRestartCountdown event handler.
     // If auto-restart is not active (e.g. first round with host-starts), show a fallback.
     const scoresText = players.map(function (player) {
-      return player.name + " (" + player.score + "/" + data.targetScore + ")";
+      return player.name + " (" + (player.points || 0) + " pts, " + player.score + "/" + data.targetScore + " wins)";
     }).join(" | ");
     let message = data.roundWinner
-      ? data.roundWinner.name + " wins the round! ⭐\nScores: " + scoresText
-      : "Everyone crashed! No winner.\nScores: " + scoresText;
+      ? data.roundWinner.name + " wins the round on points! ⭐\nScores: " + scoresText
+      : "Round ended. Highest points wins.\nScores: " + scoresText;
     document.getElementById("message").textContent = message;
   }
 
@@ -1182,11 +1207,15 @@ socket.on("spectatorsCanJoin", function () {
 });
 
 socket.on("pickupCollected", function (data) {
-  if (!data || data.type === "shield") {
+  if (!data || data.type === "shield" || data.type === "crown") {
     SoundEngine.shieldPickup();
   } else if (data.type === "ramboost") {
     SoundEngine.ramBoostPickup();
   }
+});
+
+socket.on("battleHit", function () {
+  SoundEngine.impact();
 });
 
 socket.on("ramBoostHit", function () {
@@ -1234,8 +1263,8 @@ function showRoundCountdown(seconds, winnerName) {
   const subEl = document.getElementById("rcWinner");
   if (numEl) numEl.textContent = seconds;
   if (subEl) subEl.textContent = winnerName
-    ? winnerName + " wins the round! ⭐"
-    : "Everyone crashed — no winner.";
+    ? winnerName + " wins the round on points! ⭐"
+    : "Highest points wins this round.";
 }
 
 function hideRoundCountdown() {
