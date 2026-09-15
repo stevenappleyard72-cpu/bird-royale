@@ -261,6 +261,25 @@ const SoundEngine = (() => {
       noiseBurst(c, 0.22, 0.16, 600, t);
     },
 
+    fever() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      [440, 554, 740].forEach((freq, i) => {
+        tone(c, "triangle", freq, 0.11, 0.005, 0.22, t + i * 0.045);
+      });
+      metalRing(c, 320, 0.12, 0.35, t);
+    },
+
+    announcer() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      tone(c, "square", 660, 0.10, 0.002, 0.14, t, 520);
+      tone(c, "triangle", 990, 0.06, 0.002, 0.10, t + 0.04, 760);
+      metalRing(c, 520, 0.05, 0.18, t);
+    },
+
     // Fading hiss when the curse vanishes from play
     curseDespawn() {
       const c = getCtx();

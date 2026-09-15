@@ -44,10 +44,28 @@ const collisionForceObstacleKoBonus = 10;
 const collisionPointSteal = 3;
 const collisionPointStealBonus = 3;
 
+const bountyMinPoints = 18;
+const bountyMinLead = 6;
+const bountyHitBonus = 2;
+const bountyCrashBonus = 4;
+
 const crownPickupSize = 34;
 const crownPickupPoints = 16;
 const crownSuddenDeathBonusPoints = 10;
 const crownPickupHeal = 22;
+
+const goldenTargetSize = 30;
+const goldenTargetSpawnInterval = 10000;
+const goldenTargetBasePoints = 14;
+const goldenTargetSuddenDeathBonus = 6;
+const goldenTargetTravelSpeed = 3.4;
+const goldenTargetVerticalSpeed = 1.35;
+
+const feverWindowMs = 4200;
+const feverDurationMs = 5000;
+const feverBonusPoints = 2;
+const feverFlapMultiplier = 1.08;
+const feverPushMultiplier = 1.12;
 
 const gravity = 0.45;
 const flapStrength = -7.8;
@@ -104,6 +122,15 @@ const monsterMinGap = 115;           // minimum gap the monster must preserve wh
 
 const BOT_ID = "__bot__";
 const BOT_NAME = "Bot";
+const roundWinRule = "WIN: LAST BIRD STANDING";
+
+const pointPowerThresholds = [24, 52, 85];
+const pointPowerDurationMs = [3000, 4200, 5800];
+const pointPowerFlapMultiplier = [1.06, 1.12, 1.2];
+const pointPowerPushMultiplier = [1.08, 1.16, 1.24];
+const pointPowerHeal = [8, 12, 18];
+const tier3ClutchImmunityMs = 1500;
+const clutchKnockbackResistance = 0.25;
 
 const grassDepth = 28;
 const vineDepth = 24;
@@ -275,13 +302,12 @@ function isSuddenDeath(room) {
 function getRoundTimeLeft(room) {
   const startTime = getRoundStartTime(room);
   if (!startTime) return 0;
-  return Math.max(0, Math.ceil((roundDurationMs - getRoundElapsedMs(room)) / 1000));
+  return Math.max(0, Math.ceil((suddenDeathStartMs - getRoundElapsedMs(room)) / 1000));
 }
 
 function getRoundPhase(room) {
   const startTime = getRoundStartTime(room);
   if (!startTime) return room.started ? "countdown" : "lobby";
-  if (getRoundElapsedMs(room) >= roundDurationMs) return "ended";
   return isSuddenDeath(room) ? "suddenDeath" : "scramble";
 }
 
@@ -314,11 +340,100 @@ function createPlayerState(id, name, colour, x, y) {
     lastObstacleDamageTime: 0,
     lastSurvivalAwardTime: 0,
     lastHitByPlayerId: null,
-    lastHitByTime: 0
+    lastHitByTime: 0,
+    lastBigScoreTime: 0,
+    bigScoreChain: 0,
+    feverExpiry: 0,
+    powerTierUnlocked: 0,
+    powerSurgeTier: 0,
+    powerSurgeExpiry: 0,
+    clutchImmunityCharges: 0,
+    clutchImmunityExpiry: 0
   };
 }
 
-function getRoundWinner(room) {
+function isFeverActive(player, now = Date.now()) {
+  return Boolean(player && player.feverExpiry && now < player.feverExpiry);
+}
+
+function isPowerSurgeActive(player, now = Date.now()) {
+  return Boolean(player && player.powerSurgeExpiry && now < player.powerSurgeExpiry && (player.powerSurgeTier || 0) > 0);
+}
+
+function hasClutchImmunity(player, now = Date.now()) {
+  return Boolean(
+    player &&
+    (player.clutchImmunityCharges || 0) > 0 &&
+    player.clutchImmunityExpiry &&
+    now < player.clutchImmunityExpiry
+  );
+}
+
+function getKnockbackMultiplier(player, now = Date.now()) {
+  return hasClutchImmunity(player, now) ? (1 - clutchKnockbackResistance) : 1;
+}
+
+function getPowerTierByPoints(points) {
+  let tier = 0;
+  for (let i = 0; i < pointPowerThresholds.length; i++) {
+    if ((points || 0) >= pointPowerThresholds[i]) tier = i + 1;
+  }
+  return tier;
+}
+
+function emitArenaCallout(roomCode, type, text, playerId) {
+  io.to(roomCode).emit("arenaCallout", { type, text, playerId: playerId || null });
+}
+
+function registerBigScoreEvent(player, now) {
+  if (now - (player.lastBigScoreTime || 0) <= feverWindowMs) {
+    player.bigScoreChain = (player.bigScoreChain || 0) + 1;
+  } else {
+    player.bigScoreChain = 1;
+  }
+
+  player.lastBigScoreTime = now;
+
+  if (player.bigScoreChain >= 2) {
+    const wasActive = isFeverActive(player, now);
+    player.feverExpiry = Math.max(player.feverExpiry || 0, now + feverDurationMs);
+    return !wasActive;
+  }
+
+  return false;
+}
+
+function awardEventPoints(room, roomCode, player, amount, options) {
+  const opts = options || {};
+  const now = opts.now || Date.now();
+  const leaderBefore = getPointLeader(room);
+  const previousLeaderId = leaderBefore ? leaderBefore.id : null;
+
+  awardPoints(player, amount, room, roomCode, { now });
+
+  let feverTriggered = false;
+  if (opts.feverEligible) {
+    feverTriggered = registerBigScoreEvent(player, now);
+    if (isFeverActive(player, now)) {
+      awardPoints(player, feverBonusPoints, room, roomCode, { now });
+    }
+  }
+
+  if (opts.calloutType && opts.calloutText) {
+    emitArenaCallout(roomCode, opts.calloutType, opts.calloutText, player.id);
+  }
+
+  if (feverTriggered) {
+    emitArenaCallout(roomCode, "fever", player.name + " FEVER!", player.id);
+  }
+
+  const leaderAfter = getPointLeader(room);
+  if (leaderAfter && leaderAfter.id === player.id && previousLeaderId && previousLeaderId !== player.id) {
+    emitArenaCallout(roomCode, "comeback", player.name + " TAKES THE LEAD!", player.id);
+  }
+}
+
+function getPointLeader(room) {
   const players = Object.values(room.players || {});
   if (players.length === 0) return null;
 
@@ -334,6 +449,16 @@ function getRoundWinner(room) {
 
     return (b.passCombo || 0) - (a.passCombo || 0);
   })[0];
+}
+
+function getRoundWinner(room) {
+  const alivePlayers = getAlivePlayers(room);
+  return alivePlayers.length === 1 ? alivePlayers[0] : null;
+}
+
+function getRoundWinReason(room, winner) {
+  if (winner && winner.alive) return "lastAlive";
+  return "none";
 }
 
 function dealDamage(player, amount, room, now) {
@@ -356,8 +481,35 @@ function restoreHealth(player, amount) {
   player.health = Math.min(player.maxHealth || playerMaxHealth, (player.health || 0) + heal);
 }
 
-function awardPoints(player, amount) {
+function tryActivatePointPower(room, roomCode, player, now) {
+  if (!player || !player.alive) return;
+
+  const newTier = getPowerTierByPoints(player.points || 0);
+  if (newTier <= (player.powerTierUnlocked || 0)) return;
+
+  for (let tier = (player.powerTierUnlocked || 0) + 1; tier <= newTier; tier++) {
+    const tierIndex = tier - 1;
+    player.powerTierUnlocked = tier;
+    player.powerSurgeTier = tier;
+    player.powerSurgeExpiry = Math.max(player.powerSurgeExpiry || 0, now + pointPowerDurationMs[tierIndex]);
+    restoreHealth(player, pointPowerHeal[tierIndex]);
+
+    if (tier === 3) {
+      player.clutchImmunityCharges = 1;
+      player.clutchImmunityExpiry = now + tier3ClutchImmunityMs;
+    }
+
+    emitArenaCallout(roomCode, "power", player.name + " SURGE " + tier + "!", player.id);
+  }
+}
+
+function awardPoints(player, amount, room, roomCode, options) {
+  const opts = options || {};
+  const now = opts.now || Date.now();
   player.points = Math.max(0, (player.points || 0) + amount);
+  if (!opts.skipPowerTrigger && room && roomCode) {
+    tryActivatePointPower(room, roomCode, player, now);
+  }
 }
 
 function updateSurvivalScoring(room) {
@@ -369,7 +521,7 @@ function updateSurvivalScoring(room) {
       continue;
     }
     if (now - player.lastSurvivalAwardTime >= survivalTickMs) {
-      awardPoints(player, survivalTickPoints + (isSuddenDeath(room) ? 2 : 0));
+      awardPoints(player, survivalTickPoints + (isSuddenDeath(room) ? 2 : 0), room, room.roomCode, { now });
       player.lastSurvivalAwardTime = now;
     }
   }
@@ -379,6 +531,33 @@ function getCrownPointValue(room) {
   return crownPickupPoints + (isSuddenDeath(room) ? crownSuddenDeathBonusPoints : 0);
 }
 
+function getGoldenTargetPointValue(room) {
+  return goldenTargetBasePoints + (isSuddenDeath(room) ? goldenTargetSuddenDeathBonus : 0);
+}
+
+function getBountyState(room) {
+  const alivePlayers = Object.values(room.players || {}).filter(player => player.alive);
+  if (alivePlayers.length < 2) return null;
+
+  const sorted = alivePlayers.slice().sort((a, b) => (b.points || 0) - (a.points || 0));
+  const leader = sorted[0];
+  const runnerUp = sorted[1];
+  if (!leader) return null;
+
+  const lead = (leader.points || 0) - (runnerUp ? (runnerUp.points || 0) : 0);
+  if ((leader.points || 0) < bountyMinPoints || lead < bountyMinLead) {
+    return null;
+  }
+
+  return {
+    targetId: leader.id,
+    targetName: leader.name,
+    bonus: bountyHitBonus,
+    crashBonus: bountyCrashBonus,
+    lead
+  };
+}
+
 function awardCollisionToObstacleBonus(room, victim, now, knockedOut) {
   if (!victim.lastHitByPlayerId || !victim.lastHitByTime) return;
   if (now - victim.lastHitByTime > collisionToObstacleWindowMs) return;
@@ -386,15 +565,25 @@ function awardCollisionToObstacleBonus(room, victim, now, knockedOut) {
   const attacker = room.players[victim.lastHitByPlayerId];
   if (!attacker || attacker.id === victim.id) return;
 
+  const bounty = getBountyState(room);
+  const bountyBonus = bounty && bounty.targetId === victim.id
+    ? (knockedOut ? bounty.crashBonus : bounty.bonus)
+    : 0;
+
   const baseBonus = knockedOut ? collisionForceObstacleKoBonus : collisionForceObstacleBonus;
   const phaseBonus = isSuddenDeath(room) ? 2 : 0;
   const stealCap = knockedOut ? 3 : 2;
 
-  awardPoints(attacker, baseBonus + phaseBonus);
+  awardEventPoints(room, room.roomCode, attacker, baseBonus + phaseBonus + bountyBonus, {
+    now,
+    feverEligible: true,
+    calloutType: knockedOut ? "slam" : null,
+    calloutText: knockedOut ? attacker.name + " SLAM DUNK!" : null
+  });
   const stolen = Math.min(victim.points || 0, stealCap);
   if (stolen > 0) {
     victim.points = Math.max(0, (victim.points || 0) - stolen);
-    awardPoints(attacker, stolen);
+    awardPoints(attacker, stolen, room, room.roomCode, { now });
   }
 
   victim.lastHitByPlayerId = null;
@@ -527,6 +716,7 @@ function createInitialObstacles(room) {
 function getGameState(roomCode) {
   const room = rooms[roomCode];
   const phase = getRoundPhase(room);
+  const bounty = getBountyState(room);
 
   return {
     roomCode,
@@ -541,6 +731,14 @@ function getGameState(roomCode) {
         points: p.points || 0,
         health: p.health !== undefined ? p.health : playerMaxHealth,
         maxHealth: p.maxHealth || playerMaxHealth,
+        feverActive: isFeverActive(p),
+        feverTimeLeft: Math.max(0, Math.ceil(((p.feverExpiry || 0) - Date.now()) / 1000)),
+        powerTierUnlocked: p.powerTierUnlocked || 0,
+        powerSurgeTier: p.powerSurgeTier || 0,
+        powerSurgeActive: isPowerSurgeActive(p, now),
+        powerSurgeTimeLeft: Math.max(0, Math.ceil(((p.powerSurgeExpiry || 0) - Date.now()) / 1000)),
+        clutchReady: hasClutchImmunity(p, now),
+        clutchTimeLeft: Math.max(0, Math.ceil(((p.clutchImmunityExpiry || 0) - Date.now()) / 1000)),
         shielded: p.shieldExpiry !== null && now < p.shieldExpiry,
         ramBoosted: p.ramBoostExpiry !== null && now < p.ramBoostExpiry,
         ghostX: p.ghostX !== undefined ? p.ghostX : gameWidth / 2,
@@ -554,7 +752,10 @@ function getGameState(roomCode) {
     spectatorCount: Object.keys(room.spectators || {}).length,
     roundTimeLeft: phase === "lobby" || phase === "countdown" ? 0 : getRoundTimeLeft(room),
     roundPhase: phase,
+    roundWinRule,
     suddenDeath: phase === "suddenDeath",
+    bounty,
+    goldenTarget: room.goldenTarget || null,
     curse: room.curse ? {
       state:     room.curse.state,
       x:         room.curse.x,
@@ -616,6 +817,14 @@ function resetPlayersForRound(room) {
     players[i].lastSurvivalAwardTime = 0;
     players[i].lastHitByPlayerId = null;
     players[i].lastHitByTime = 0;
+    players[i].lastBigScoreTime = 0;
+    players[i].bigScoreChain = 0;
+    players[i].feverExpiry = 0;
+    players[i].powerTierUnlocked = 0;
+    players[i].powerSurgeTier = 0;
+    players[i].powerSurgeExpiry = 0;
+    players[i].clutchImmunityCharges = 0;
+    players[i].clutchImmunityExpiry = 0;
   }
 }
 
@@ -640,18 +849,26 @@ function keepPlayerInsideArena(player) {
 }
 
 function applyInput(player, direction, room) {
+  const feverFlap = isFeverActive(player) ? feverFlapMultiplier : 1;
+  const feverPush = isFeverActive(player) ? feverPushMultiplier : 1;
+  const powerIndex = Math.max(0, Math.min(pointPowerThresholds.length - 1, (player.powerSurgeTier || 1) - 1));
+  const powerFlap = isPowerSurgeActive(player) ? pointPowerFlapMultiplier[powerIndex] : 1;
+  const powerPush = isPowerSurgeActive(player) ? pointPowerPushMultiplier[powerIndex] : 1;
+  const flapMult = feverFlap * powerFlap;
+  const pushMult = feverPush * powerPush;
+
   if (direction === "up") {
-    player.velocityY = flapStrength - 0.4;
+    player.velocityY = (flapStrength - 0.4) * flapMult;
   }
 
   if (direction === "left") {
-    player.velocityY = sideFlapStrength;
-    player.velocityX -= horizontalPush;
+    player.velocityY = sideFlapStrength * flapMult;
+    player.velocityX -= horizontalPush * pushMult;
   }
 
   if (direction === "right") {
-    player.velocityY = sideFlapStrength;
-    player.velocityX += horizontalPush;
+    player.velocityY = sideFlapStrength * flapMult;
+    player.velocityX += horizontalPush * pushMult;
   }
 
   if (direction === "down") {
@@ -659,23 +876,23 @@ function applyInput(player, direction, room) {
   }
 
   if (direction === "up-left") {
-    player.velocityY = flapStrength * 0.92;
-    player.velocityX -= horizontalPush * 0.82;
+    player.velocityY = flapStrength * 0.92 * flapMult;
+    player.velocityX -= horizontalPush * 0.82 * pushMult;
   }
 
   if (direction === "up-right") {
-    player.velocityY = flapStrength * 0.92;
-    player.velocityX += horizontalPush * 0.82;
+    player.velocityY = flapStrength * 0.92 * flapMult;
+    player.velocityX += horizontalPush * 0.82 * pushMult;
   }
 
   if (direction === "down-left") {
     player.velocityY = Math.max(player.velocityY, 6.2);
-    player.velocityX -= horizontalPush * 0.82;
+    player.velocityX -= horizontalPush * 0.82 * pushMult;
   }
 
   if (direction === "down-right") {
     player.velocityY = Math.max(player.velocityY, 6.2);
-    player.velocityX += horizontalPush * 0.82;
+    player.velocityX += horizontalPush * 0.82 * pushMult;
   }
 }
 
@@ -708,7 +925,7 @@ function updatePlayerPhysics(room) {
   }
 }
 
-function updateObstacles(room) {
+function updateObstacles(room, roomCode) {
   const speedMultiplier = getSpeedMultiplier(room);
 
   for (const obstacle of room.obstacles) {
@@ -724,7 +941,9 @@ function updateObstacles(room) {
       if (obstacle.x + obstacle.width < player.x) {
         const comboBonus = Math.min((player.passCombo || 0) * 2, obstaclePassComboBonusCap);
         const phaseBonus = isSuddenDeath(room) ? obstaclePassSuddenDeathBonus : 0;
-        awardPoints(player, obstaclePassBasePoints + comboBonus + phaseBonus);
+        awardEventPoints(room, roomCode, player, obstaclePassBasePoints + comboBonus + phaseBonus, {
+          feverEligible: true
+        });
         player.passCombo = (player.passCombo || 0) + 1;
         player.scoredObstacleIds[obstacle.id] = true;
       }
@@ -830,7 +1049,7 @@ function resolvePlayerObstacleCollision(player, obstacle) {
   return hitTop || hitBottom;
 }
 
-function applyObstacleDeaths(room) {
+function applyObstacleDeaths(room, roomCode) {
   const players = Object.values(room.players);
   const now = Date.now();
 
@@ -838,6 +1057,7 @@ function applyObstacleDeaths(room) {
     if (!player.alive) continue;
 
     const shielded = player.shieldExpiry !== null && now < player.shieldExpiry;
+    const clutchReady = hasClutchImmunity(player, now);
     const damage = isSuddenDeath(room) ? obstacleDamageSuddenDeath : obstacleDamage;
 
     if (now - (player.lastObstacleDamageTime || 0) < obstacleDamageCooldownMs) {
@@ -845,6 +1065,15 @@ function applyObstacleDeaths(room) {
     }
 
     if (playerHitsBoundary(player)) {
+      if (clutchReady && !shielded) {
+        player.clutchImmunityCharges = Math.max(0, (player.clutchImmunityCharges || 0) - 1);
+        player.clutchImmunityExpiry = 0;
+        io.to(roomCode).emit("shieldBlock", {});
+        emitArenaCallout(roomCode, "power", player.name + " CLUTCH SAVE!", player.id);
+        player.lastObstacleDamageTime = now;
+        continue;
+      }
+
       if (!shielded) {
         const wasAlive = player.alive;
         dealDamage(player, damage, room, now);
@@ -860,6 +1089,15 @@ function applyObstacleDeaths(room) {
       const collided = resolvePlayerObstacleCollision(player, obstacle);
       if (collided) {
         keepPlayerInsideArena(player);
+      }
+
+      if (clutchReady && !shielded) {
+        player.clutchImmunityCharges = Math.max(0, (player.clutchImmunityCharges || 0) - 1);
+        player.clutchImmunityExpiry = 0;
+        io.to(roomCode).emit("shieldBlock", {});
+        emitArenaCallout(roomCode, "power", player.name + " CLUTCH SAVE!", player.id);
+        player.lastObstacleDamageTime = now;
+        break;
       }
 
       if (!shielded) {
@@ -927,22 +1165,28 @@ function applyPlayerCollisions(room, roomCode) {
 
         const knockbackMult = attackerRamBoosted ? ramBoostKnockbackMultiplier : 1;
         const recoilMult    = attackerRamBoosted ? ramBoostRecoilMultiplier    : 1;
-        const pointSteal = collisionPointSteal + (attackerRamBoosted ? collisionPointStealBonus : 0) + (isSuddenDeath(room) ? 1 : 0);
+        const victimResistanceMult = getKnockbackMultiplier(victim, now);
+        const bounty = getBountyState(room);
+        const bountyTargetHit = bounty && bounty.targetId === victim.id;
+        const pointSteal = collisionPointSteal + (attackerRamBoosted ? collisionPointStealBonus : 0) + (isSuddenDeath(room) ? 1 : 0) + (bountyTargetHit ? bounty.bonus : 0);
 
         // ── Stomp hit: hard downward hit steals extra points and launches victim ──
         const attackerDiving = attacker.velocityY > 7;
         const attackerAbove  = (attacker.y + birdSize / 2) < (victim.y + birdSize / 2);
         if (attackerDiving && attackerAbove && !victimShielded) {
-          victim.x += directionX * victimKnockback * 1.25;
-          victim.y += directionY * victimKnockback * 1.25;
-          victim.velocityX += directionX * 7;
-          victim.velocityY += directionY * 7;
+          victim.x += directionX * victimKnockback * 1.25 * victimResistanceMult;
+          victim.y += directionY * victimKnockback * 1.25 * victimResistanceMult;
+          victim.velocityX += directionX * 7 * victimResistanceMult;
+          victim.velocityY += directionY * 7 * victimResistanceMult;
           keepPlayerInsideArena(victim);
           attacker.velocityY = flapStrength * 0.7;  // bounce attacker up
           const stolen = Math.min(victim.points || 0, pointSteal + 1);
           if (stolen > 0) {
             victim.points = Math.max(0, (victim.points || 0) - stolen);
-            awardPoints(attacker, stolen);
+            awardPoints(attacker, stolen, room, roomCode, { now });
+            if (bountyTargetHit) {
+              emitArenaCallout(roomCode, "bounty", attacker.name + " CASHES THE BOUNTY!", attacker.id);
+            }
           }
           victim.lastHitByPlayerId = attacker.id;
           victim.lastHitByTime = now;
@@ -954,14 +1198,17 @@ function applyPlayerCollisions(room, roomCode) {
         if (!victimShielded) {
           const cursedVictimMult = (room.curse && room.curse.state === 'attached' && room.curse.carrierId === victim.id)
             ? (1 + curseKnockbackBonus) : 1;
-          victim.x += directionX * victimKnockback * knockbackMult * cursedVictimMult;
-          victim.y += directionY * victimKnockback * knockbackMult * cursedVictimMult;
-          victim.velocityX += directionX * 5 * knockbackMult * cursedVictimMult;
-          victim.velocityY += directionY * 5 * knockbackMult * cursedVictimMult;
+          victim.x += directionX * victimKnockback * knockbackMult * cursedVictimMult * victimResistanceMult;
+          victim.y += directionY * victimKnockback * knockbackMult * cursedVictimMult * victimResistanceMult;
+          victim.velocityX += directionX * 5 * knockbackMult * cursedVictimMult * victimResistanceMult;
+          victim.velocityY += directionY * 5 * knockbackMult * cursedVictimMult * victimResistanceMult;
           const stolen = Math.min(victim.points || 0, pointSteal);
           if (stolen > 0) {
             victim.points = Math.max(0, (victim.points || 0) - stolen);
-            awardPoints(attacker, stolen);
+            awardPoints(attacker, stolen, room, roomCode, { now });
+            if (bountyTargetHit) {
+              emitArenaCallout(roomCode, "bounty", attacker.name + " CASHES THE BOUNTY!", attacker.id);
+            }
           }
           victim.lastHitByPlayerId = attacker.id;
           victim.lastHitByTime = now;
@@ -1076,6 +1323,63 @@ function createCrownPickup(room) {
   };
 }
 
+function createGoldenTarget() {
+  return {
+    x: gameWidth + goldenTargetSize,
+    y: randomNumber(vineDepth + 40, gameHeight - grassDepth - goldenTargetSize - 40),
+    size: goldenTargetSize,
+    velocityX: -goldenTargetTravelSpeed,
+    velocityY: Math.random() > 0.5 ? goldenTargetVerticalSpeed : -goldenTargetVerticalSpeed
+  };
+}
+
+function updateGoldenTarget(room, roomCode) {
+  const now = Date.now();
+  const speedMultiplier = getSpeedMultiplier(room);
+
+  if (!room.goldenTarget && now - (room.lastGoldenTargetSpawn || 0) >= goldenTargetSpawnInterval) {
+    room.goldenTarget = createGoldenTarget();
+    room.lastGoldenTargetSpawn = now;
+    emitArenaCallout(roomCode, "goldrush", "GOLD RUSH!", null);
+  }
+
+  if (!room.goldenTarget) return;
+
+  room.goldenTarget.x += room.goldenTarget.velocityX * speedMultiplier;
+  room.goldenTarget.y += room.goldenTarget.velocityY * speedMultiplier;
+
+  if (room.goldenTarget.y <= vineDepth + 12 || room.goldenTarget.y >= gameHeight - grassDepth - room.goldenTarget.size - 12) {
+    room.goldenTarget.velocityY *= -1;
+  }
+
+  const alivePlayers = getAlivePlayers(room);
+  for (const player of alivePlayers) {
+    const overlaps =
+      player.x < room.goldenTarget.x + room.goldenTarget.size &&
+      player.x + birdSize > room.goldenTarget.x &&
+      player.y < room.goldenTarget.y + room.goldenTarget.size &&
+      player.y + birdSize > room.goldenTarget.y;
+
+    if (overlaps) {
+      awardEventPoints(room, roomCode, player, getGoldenTargetPointValue(room), {
+        now,
+        feverEligible: true,
+        calloutType: "jackpot",
+        calloutText: player.name + " JACKPOT!"
+      });
+      restoreHealth(player, 10);
+      room.goldenTarget = null;
+      room.lastGoldenTargetSpawn = now;
+      return;
+    }
+  }
+
+  if (room.goldenTarget.x + room.goldenTarget.size < -20) {
+    room.goldenTarget = null;
+    room.lastGoldenTargetSpawn = now;
+  }
+}
+
 function updatePickups(room, roomCode) {
   const speedMultiplier = getSpeedMultiplier(room);
   const now = Date.now();
@@ -1094,13 +1398,13 @@ function updatePickups(room, roomCode) {
         if (pickup.type === "shield") {
           player.shieldExpiry = now + shieldDuration;
           restoreHealth(player, 15);
-          awardPoints(player, 5);
+          awardPoints(player, 5, room, roomCode, { now });
         } else if (pickup.type === "ramboost") {
           player.ramBoostExpiry = now + ramBoostDuration;
           restoreHealth(player, 12);
-          awardPoints(player, 7);
+          awardPoints(player, 7, room, roomCode, { now });
         } else if (pickup.type === "shockwave") {
-          awardPoints(player, 6);
+          awardPoints(player, 6, room, roomCode, { now });
           const collectorCX = player.x + birdSize / 2;
           const collectorCY = player.y + birdSize / 2;
           for (const other of alivePlayers) {
@@ -1112,10 +1416,11 @@ function updatePickups(room, roomCode) {
               const falloff = 1 - dist / shockwaveRadius;
               const nx = dist > 0 ? dx / dist : 0;
               const ny = dist > 0 ? dy / dist : -1;
-              other.x += nx * shockwavePushStrength * falloff;
-              other.y += ny * shockwavePushStrength * falloff;
-              other.velocityX += nx * shockwavePushStrength * falloff * 0.25;
-              other.velocityY += ny * shockwavePushStrength * falloff * 0.25;
+              const resistanceMult = getKnockbackMultiplier(other, now);
+              other.x += nx * shockwavePushStrength * falloff * resistanceMult;
+              other.y += ny * shockwavePushStrength * falloff * resistanceMult;
+              other.velocityX += nx * shockwavePushStrength * falloff * 0.25 * resistanceMult;
+              other.velocityY += ny * shockwavePushStrength * falloff * 0.25 * resistanceMult;
               keepPlayerInsideArena(other);
             }
           }
@@ -1124,7 +1429,12 @@ function updatePickups(room, roomCode) {
             y: collectorCY
           });
         } else if (pickup.type === "crown") {
-          awardPoints(player, getCrownPointValue(room));
+          awardEventPoints(room, roomCode, player, getCrownPointValue(room), {
+            now,
+            feverEligible: true,
+            calloutType: "crown",
+            calloutText: player.name + " CROWN SNATCH!"
+          });
           restoreHealth(player, crownPickupHeal);
         }
         room.pickups.splice(i, 1);
@@ -1436,6 +1746,9 @@ function endRound(roomCode, winner) {
 
   if (!room) return;
 
+  const resolvedWinner = winner || getRoundWinner(room);
+  const winReason = getRoundWinReason(room, resolvedWinner);
+
   room.started = false;
 
   // Clear curse immediately — round is over, show clean state in final broadcast
@@ -1446,16 +1759,16 @@ function endRound(roomCode, winner) {
     room.gameLoop = null;
   }
 
-  if (winner) {
-    awardPoints(winner, roundWinnerBonusPoints + (isSuddenDeath(room) ? suddenDeathWinnerBonusPoints : 0));
-    winner.score++;
+  if (resolvedWinner) {
+    awardPoints(resolvedWinner, roundWinnerBonusPoints + (isSuddenDeath(room) ? suddenDeathWinnerBonusPoints : 0), room, roomCode);
+    resolvedWinner.score++;
   }
 
-  const matchWinner = winner && winner.score >= room.targetScore ? winner : null;
+  const matchWinner = resolvedWinner && resolvedWinner.score >= room.targetScore ? resolvedWinner : null;
 
   // Track hourly leaderboard stats (bot excluded)
-  if (winner && winner.id !== BOT_ID) {
-    recordHourlyStat(winner.name, "roundWins");
+  if (resolvedWinner && resolvedWinner.id !== BOT_ID) {
+    recordHourlyStat(resolvedWinner.name, "roundWins");
   }
   if (matchWinner && matchWinner.id !== BOT_ID) {
     recordHourlyStat(matchWinner.name, "matchWins");
@@ -1472,7 +1785,9 @@ function endRound(roomCode, winner) {
   broadcastGameState(roomCode);
 
   io.to(roomCode).emit("roundEnded", {
-    roundWinner: winner || null,
+    roundWinner: resolvedWinner || null,
+    winReason,
+    roundWinRule,
     matchWinner,
     targetScore: room.targetScore,
     players: getPlayersInRoom(roomCode),
@@ -1505,25 +1820,20 @@ function checkForRoundEnd(roomCode) {
   if (isSoloVsBotRound && alivePlayers.length <= 1) {
     if (!room.victoryTimer) {
       room.victoryTimer = setTimeout(() => {
-        endRound(roomCode, alivePlayers[0] || getRoundWinner(room));
+        endRound(roomCode, getRoundWinner(room));
         room.victoryTimer = null;
       }, 350);
     }
     return;
   }
 
-  if (phase === "ended") {
-    endRound(roomCode, getRoundWinner(room));
-    return;
-  }
-
-  if (phase === "suddenDeath" && alivePlayers.length <= 1) {
+  if (alivePlayers.length <= 1) {
     // First time detecting end condition, start victory timer to show explosions
     if (!room.victoryTimer) {
       room.victoryTimer = setTimeout(() => {
-        endRound(roomCode, alivePlayers[0] || getRoundWinner(room));
+        endRound(roomCode, getRoundWinner(room));
         room.victoryTimer = null;
-      }, 600);  // Match explosion animation duration
+      }, phase === "suddenDeath" ? 600 : 350);
     }
   }
 }
@@ -1558,6 +1868,8 @@ function startRoundForRoom(roomCode) {
   const room = rooms[roomCode];
   if (!room || room.started) return;
 
+  room.roomCode = roomCode;
+
   const playerCount = Object.keys(room.players).length;
   if (playerCount === 1) {
     addBotToRoom(roomCode);
@@ -1571,6 +1883,8 @@ function startRoundForRoom(roomCode) {
   room.obstacles       = createInitialObstacles(room);
   room.obstaclesPassed = 0;
   room.pickups         = [];
+  room.goldenTarget    = null;
+  room.lastGoldenTargetSpawn = Date.now();
   room.lastPickupSpawn = 0;
   room.lastMonsterSpawn = Date.now();
   room.curse           = null;
@@ -1614,9 +1928,10 @@ function startGameLoop(roomCode) {
     checkCurseTransfer(activeRoom, roomCode);
     applyPlayerCollisions(activeRoom, roomCode);
     updateMonster(activeRoom, roomCode);
-    updateObstacles(activeRoom);
+    updateObstacles(activeRoom, roomCode);
+    updateGoldenTarget(activeRoom, roomCode);
     updatePickups(activeRoom, roomCode);
-    applyObstacleDeaths(activeRoom);
+    applyObstacleDeaths(activeRoom, roomCode);
     updateSurvivalScoring(activeRoom);
     broadcastGameState(roomCode);
     checkForRoundEnd(roomCode);
@@ -1632,6 +1947,7 @@ io.on("connection", (socket) => {
     }
 
     rooms[roomCode] = {
+      roomCode,
       hostId: socket.id,
       players: {},
       spectators: {},
@@ -1642,6 +1958,8 @@ io.on("connection", (socket) => {
       gameSpeed: clampGameSpeed(gameSpeed),
       targetScore: clampTargetScore(targetScore),
       pickups: [],
+      goldenTarget: null,
+      lastGoldenTargetSpawn: 0,
       lastPickupSpawn: 0,
       lastMonsterSpawn: 0,
       curse: null,
@@ -1838,8 +2156,9 @@ io.on("connection", (socket) => {
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < GHOST_SPOOK_RADIUS && dist > 0) {
           const falloff = 1 - dist / GHOST_SPOOK_RADIUS;
-          other.velocityX += (dx / dist) * GHOST_SPOOK_FORCE * falloff;
-          other.velocityY += (dy / dist) * GHOST_SPOOK_FORCE * falloff;
+          const resistanceMult = getKnockbackMultiplier(other, now);
+          other.velocityX += (dx / dist) * GHOST_SPOOK_FORCE * falloff * resistanceMult;
+          other.velocityY += (dy / dist) * GHOST_SPOOK_FORCE * falloff * resistanceMult;
           keepPlayerInsideArena(other);
         }
       }

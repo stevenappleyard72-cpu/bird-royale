@@ -35,6 +35,13 @@ let pickups = [];
 let roundTimeLeft = 0;
 let roundPhase = "lobby";
 let suddenDeath = false;
+let roundWinRule = "WIN: LAST BIRD STANDING";
+let bounty = null;
+let goldenTarget = null;
+let scoreBursts = [];
+let previousPlayerPoints = {};
+let bountyBanner = null;
+let lastRoundWinReason = null;
 
 let curse = null;              // Current curse state from server (null | { state, x, y, targetId, carrierId })
 let lastCurseRattleTime = 0;  // Throttle rattle sound
@@ -436,13 +443,26 @@ function updateLocalState(data) {
   spectatorCount = data.spectatorCount || 0;
   roundTimeLeft = data.roundTimeLeft || 0;
   roundPhase = data.roundPhase || roundPhase;
+  roundWinRule = data.roundWinRule || roundWinRule;
   suddenDeath = Boolean(data.suddenDeath);
+  if (data.bounty && (!bounty || bounty.targetId !== data.bounty.targetId)) {
+    bountyBanner = { text: "WANTED: " + data.bounty.targetName, startTime: Date.now() };
+  }
+  if (!data.bounty && bounty) {
+    bountyBanner = { text: "BOUNTY CLEARED", startTime: Date.now() };
+  }
+  bounty = data.bounty || null;
+  goldenTarget = data.goldenTarget || null;
   curse = data.curse !== undefined ? data.curse : null;
 }
 
 function drawPlayers() {
   const container = document.getElementById("playersContainer");
   container.innerHTML = "";
+
+  syncScoreBursts();
+  drawBountyBanner(container);
+  drawGoldenTarget(container);
 
   for (let i = 0; i < players.length; i++) {
     const player = players[i];
@@ -465,7 +485,10 @@ function drawPlayers() {
     }
 
     const bird = document.createElement("div");
-    bird.className = "player-bird";
+    bird.className = "player-bird" +
+      (bounty && bounty.targetId === player.id ? " player-bounty" : "") +
+      (player.powerSurgeActive ? " player-surge" : "") +
+      (player.feverActive ? " player-fever" : "");
     bird.style.left = scaleX(player.x) + "px";
     bird.style.top = scaleY(player.y) + "px";
     bird.style.width = scaleSize(birdSize) + "px";
@@ -479,7 +502,12 @@ function drawPlayers() {
 
     const name = document.createElement("div");
     name.className = "player-name";
-    name.textContent = player.name;
+    name.textContent =
+      (bounty && bounty.targetId === player.id ? "👑 " : "") +
+      (player.clutchReady ? "🛡 " : "") +
+      (player.powerSurgeActive ? "⚡ " : "") +
+      (player.feverActive ? "🔥 " : "") +
+      player.name;
 
     const healthBar = document.createElement("div");
     healthBar.className = "player-healthbar";
@@ -546,6 +574,7 @@ function drawPlayers() {
   // Draw explosions and shockwaves
   drawExplosions();
   drawShockwaves();
+  drawScoreBursts(container);
 
   // Update previous state
   previousPlayersState = {};
@@ -711,10 +740,39 @@ function drawScoreHud() {
     : "<span class='hud-speed'>⚡" + speed + "x</span>";
 
   const phaseLabel = roundPhase === "suddenDeath"
-    ? "<span class='hud-phase hud-phase-danger'>FINAL RUSH " + roundTimeLeft + "s</span>"
+    ? "<span class='hud-phase hud-phase-danger'>SUDDEN DEATH</span>"
     : roundTimeLeft > 0
-      ? "<span class='hud-phase'>RUSH " + roundTimeLeft + "s</span>"
+      ? "<span class='hud-phase'>SURGE WINDOW " + roundTimeLeft + "s</span>"
       : "<span class='hud-phase'>BUILDING</span>";
+
+  const bountyLabel = bounty
+    ? "<span class='hud-bounty'>WANTED: " + bounty.targetName + " +" + bounty.bonus + "</span>"
+    : "";
+
+  const localPlayer = players.find(function (player) { return player.id === mySocketId; });
+  const feverLabel = localPlayer && localPlayer.feverActive
+    ? "<span class='hud-fever'>FEVER " + localPlayer.feverTimeLeft + "s</span>"
+    : "";
+
+  const thresholds = [24, 52, 85];
+  let chargeLabel = "";
+  if (localPlayer) {
+    const tier = localPlayer.powerTierUnlocked || 0;
+    if (tier >= thresholds.length) {
+      chargeLabel = "<span class='hud-charge'>CHARGE MAX</span>";
+    } else {
+      const target = thresholds[tier];
+      chargeLabel = "<span class='hud-charge'>CHG " + (localPlayer.points || 0) + "/" + target + "</span>";
+    }
+    if (localPlayer.powerSurgeActive) {
+      chargeLabel += "<span class='hud-charge hud-charge-live'>SURGE " + (localPlayer.powerSurgeTier || 1) + " " + (localPlayer.powerSurgeTimeLeft || 0) + "s</span>";
+    }
+    if (localPlayer.clutchReady) {
+      chargeLabel += "<span class='hud-charge hud-charge-live'>CLUTCH " + (localPlayer.clutchTimeLeft || 0) + "s</span>";
+    }
+  }
+
+  const ruleLabel = "<span class='hud-rule'>" + roundWinRule + "</span>";
 
   hud.innerHTML =
     "<div class='hud-scores'>" +
@@ -723,10 +781,91 @@ function drawScoreHud() {
       const isMe    = p.id === mySocketId;
       return "<span class='hud-player" + (isMe ? " hud-me" : "") + (!p.alive ? " hud-dead" : "") +
         "' style='color:" + p.colour + "'>" +
-        p.name + " P:" + (p.points || 0) + " <span class='hud-health'>HP:" + health + "%</span>" +
+        p.name + " C:" + (p.points || 0) + " <span class='hud-health'>HP:" + health + "%</span>" +
         "</span>";
     }).join("<span class='hud-sep'> · </span>") +
-    "</div><div class='hud-right'>" + phaseLabel + speedLabel + "</div>";
+    "</div><div class='hud-right'>" + bountyLabel + feverLabel + chargeLabel + ruleLabel + phaseLabel + speedLabel + "</div>";
+}
+
+function getRoundWinnerMessage(roundWinner, winReason) {
+  if (!roundWinner) return "Round ended with no survivor.";
+  return roundWinner.name + " is the last bird standing! ⭐";
+}
+
+function drawGoldenTarget(container) {
+  if (!goldenTarget) return;
+
+  const el = document.createElement("div");
+  el.className = "golden-target";
+  el.textContent = "✦";
+  el.style.left = scaleX(goldenTarget.x) + "px";
+  el.style.top = scaleY(goldenTarget.y) + "px";
+  el.style.width = scaleSize(goldenTarget.size) + "px";
+  el.style.height = scaleSize(goldenTarget.size) + "px";
+  container.appendChild(el);
+}
+
+function syncScoreBursts() {
+  const now = Date.now();
+
+  for (const player of players) {
+    const currentPoints = player.points || 0;
+    const previousPoints = previousPlayerPoints[player.id];
+
+    if (previousPoints !== undefined && previousPoints !== currentPoints) {
+      const delta = currentPoints - previousPoints;
+      if (delta !== 0) {
+        scoreBursts.push({
+          x: (player.alive ? player.x : (player.ghostX !== undefined ? player.ghostX : player.x)) + birdSize / 2,
+          y: player.alive ? player.y : (player.ghostY !== undefined ? player.ghostY : player.y),
+          delta,
+          startTime: now
+        });
+      }
+    }
+
+    previousPlayerPoints[player.id] = currentPoints;
+  }
+}
+
+function drawScoreBursts(container) {
+  const now = Date.now();
+  const duration = 850;
+
+  for (let i = scoreBursts.length - 1; i >= 0; i--) {
+    const burst = scoreBursts[i];
+    const progress = Math.min((now - burst.startTime) / duration, 1);
+    if (progress >= 1) {
+      scoreBursts.splice(i, 1);
+      continue;
+    }
+
+    const el = document.createElement("div");
+    el.className = "score-burst" + (burst.delta > 0 ? " score-burst-positive" : " score-burst-negative");
+    el.textContent = (burst.delta > 0 ? "+" : "") + burst.delta;
+    el.style.left = scaleX(burst.x) + "px";
+    el.style.top = scaleY(burst.y - 18) - progress * 22 + "px";
+    el.style.opacity = 1 - progress;
+    container.appendChild(el);
+  }
+}
+
+function drawBountyBanner(container) {
+  if (!bountyBanner) return;
+
+  const now = Date.now();
+  const duration = 1200;
+  const progress = Math.min((now - bountyBanner.startTime) / duration, 1);
+  if (progress >= 1) {
+    bountyBanner = null;
+    return;
+  }
+
+  const banner = document.createElement("div");
+  banner.className = "bounty-banner bounty-banner-" + (bountyBanner.type || "callout");
+  banner.textContent = bountyBanner.text;
+  banner.style.opacity = 1 - progress * 0.2;
+  container.appendChild(banner);
 }
 
 function drawCurse() {
@@ -820,11 +959,14 @@ function updatePlayerList() {
     "<h3>Players</h3>" +
     players.map(function (player) {
       const aliveText = player.alive ? "" : " (out)";
-      const pointsText = " " + (player.points || 0) + " pts";
+      const pointsText = " " + (player.points || 0) + " charge";
+      const surgeTierText = (player.powerTierUnlocked || 0) > 0 ? " · surge " + player.powerTierUnlocked : "";
+      const surgeLiveText = player.powerSurgeActive ? " · ACTIVE " + (player.powerSurgeTimeLeft || 0) + "s" : "";
+      const clutchText = player.clutchReady ? " · CLUTCH " + (player.clutchTimeLeft || 0) + "s" : "";
       const healthText = " " + Math.round(player.health || 0) + "% hp";
       const winText = player.score !== undefined ? " · " + player.score + " match wins" : "";
       return "<div style='color:" + player.colour + "'>" +
-        player.name + pointsText + healthText + winText + aliveText +
+        player.name + pointsText + surgeTierText + surgeLiveText + clutchText + healthText + winText + aliveText +
         "</div>";
     }).join("");
 }
@@ -840,7 +982,7 @@ function showWaitingMessage() {
     ". Speed: " + gameSpeed + " (" + gameSpeedMultiplier.toFixed(1) + "x). " +
     "Target: " + targetScore + " rounds." + specCount + " " +
     (isHost
-      ? "You are the host. Tap or press any movement direction to start. Round points decide each winner."
+      ? "You are the host. Tap or press any movement direction to start. Last bird alive wins each round. Charge powers are earned from points."
       : "Waiting for the host to start.");
 }
 
@@ -1054,6 +1196,9 @@ socket.on("roomUpdated", function (data) {
   explosions = {};
   shockwaves = [];
   ghostSpooks = [];
+  scoreBursts = [];
+  previousPlayerPoints = {};
+  bountyBanner = null;
   previousPlayersState = {};
   isGhost = false;
   hideRoundCountdown();  // clear between-rounds timer
@@ -1082,6 +1227,9 @@ socket.on("gameStarting", function (data) {
   explosions = {};
   shockwaves = [];
   ghostSpooks = [];
+  scoreBursts = [];
+  previousPlayerPoints = {};
+  bountyBanner = null;
   previousPlayersState = {};
   curse = null;
   lastCurseRattleTime = 0;
@@ -1122,8 +1270,11 @@ socket.on("roundEnded", function (data) {
   countdownRunning = false;
   gameRunning = false;
   isGhost = false;  // round is over — no longer a ghost
+  scoreBursts = [];
+  previousPlayerPoints = {};
 
   updateLocalState(data);
+  lastRoundWinReason = data.winReason || null;
 
   if (data.matchWinner) {
     matchEnded = true;
@@ -1131,6 +1282,7 @@ socket.on("roundEnded", function (data) {
     if (autoRestartDisplayInterval) { clearInterval(autoRestartDisplayInterval); autoRestartDisplayInterval = null; }
     window._lastRoundWinnerName = null;
     window._lastRoundWinnerId   = null;
+    window._lastRoundWinReason  = null;
     document.getElementById("message").textContent = data.matchWinner.name + " wins the match!";
     SoundEngine.matchWin();
 
@@ -1143,7 +1295,7 @@ socket.on("roundEnded", function (data) {
     // they can't start the round and their flow is handled via spectatorsCanJoin.
     // Just update the score display and preserve the spectating message.
     const scoresText = players.map(function (player) {
-      return player.name + " (" + (player.points || 0) + " pts, " + player.score + "/" + data.targetScore + " wins)";
+      return player.name + " (" + (player.points || 0) + " charge, surge " + (player.powerTierUnlocked || 0) + ", " + player.score + "/" + data.targetScore + " wins)";
     }).join(" | ");
     document.getElementById("message").textContent =
       "Spectating... " + scoresText + " — waiting for the match to end.";
@@ -1154,6 +1306,7 @@ socket.on("roundEnded", function (data) {
     // Store round winner info for the auto-restart countdown display
     window._lastRoundWinnerName = data.roundWinner ? data.roundWinner.name : null;
     window._lastRoundWinnerId   = data.roundWinner ? data.roundWinner.id   : null;
+    window._lastRoundWinReason  = data.winReason || null;
 
     if (data.roundWinner) {
       SoundEngine.roundWin();
@@ -1161,11 +1314,10 @@ socket.on("roundEnded", function (data) {
     // The message will be filled in by the autoRestartCountdown event handler.
     // If auto-restart is not active (e.g. first round with host-starts), show a fallback.
     const scoresText = players.map(function (player) {
-      return player.name + " (" + (player.points || 0) + " pts, " + player.score + "/" + data.targetScore + " wins)";
+      return player.name + " (" + (player.points || 0) + " charge, surge " + (player.powerTierUnlocked || 0) + ", " + player.score + "/" + data.targetScore + " wins)";
     }).join(" | ");
-    let message = data.roundWinner
-      ? data.roundWinner.name + " wins the round on points! ⭐\nScores: " + scoresText
-      : "Round ended. Highest points wins.\nScores: " + scoresText;
+    let message = getRoundWinnerMessage(data.roundWinner, data.winReason) + "\n" +
+      roundWinRule + "\nScores: " + scoresText;
     document.getElementById("message").textContent = message;
   }
 
@@ -1185,6 +1337,9 @@ socket.on("joinedAsSpectator", function (data) {
 
   spectatorJoining = true;
   updateLocalState(data);
+  scoreBursts = [];
+  previousPlayerPoints = {};
+  bountyBanner = null;
 
   // Seed previousPlayersState so the first drawPlayers() doesn't mistake
   // already-dead players as "just died" and fire false explosions/sounds.
@@ -1211,6 +1366,22 @@ socket.on("pickupCollected", function (data) {
     SoundEngine.shieldPickup();
   } else if (data.type === "ramboost") {
     SoundEngine.ramBoostPickup();
+  }
+});
+
+socket.on("arenaCallout", function (data) {
+  if (!data || !data.text) return;
+
+  bountyBanner = {
+    text: data.text,
+    type: data.type || "callout",
+    startTime: Date.now()
+  };
+
+  if (data.type === "fever") {
+    SoundEngine.fever();
+  } else {
+    SoundEngine.announcer();
   }
 });
 
@@ -1255,16 +1426,17 @@ socket.on("curseDestroyedByPowerup", function () {
   SoundEngine.curseDespawn();
 });
 
-function showRoundCountdown(seconds, winnerName) {
+function showRoundCountdown(seconds, winnerName, winReason) {
   const el = document.getElementById("roundCountdown");
   if (!el) return;
   el.style.display = "flex";
   const numEl = document.getElementById("rcNumber");
   const subEl = document.getElementById("rcWinner");
   if (numEl) numEl.textContent = seconds;
-  if (subEl) subEl.textContent = winnerName
-    ? winnerName + " wins the round on points! ⭐"
-    : "Highest points wins this round.";
+  if (subEl) {
+    const winner = winnerName ? { name: winnerName } : null;
+    subEl.textContent = getRoundWinnerMessage(winner, winReason) + " Last bird alive wins.";
+  }
 }
 
 function hideRoundCountdown() {
@@ -1314,7 +1486,7 @@ socket.on("autoRestartCountdown", function (data) {
       return;
     }
     const remaining = Math.max(0, Math.ceil((autoRestartEndTime - Date.now()) / 1000));
-    showRoundCountdown(remaining, window._lastRoundWinnerName);
+    showRoundCountdown(remaining, window._lastRoundWinnerName, window._lastRoundWinReason);
   }
 
   tick();
