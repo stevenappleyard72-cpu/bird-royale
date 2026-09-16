@@ -1069,30 +1069,29 @@ const pointerDirections = [
   "down-right"
 ];
 
-function getMyPlayerState() {
-  return players.find(function (player) {
-    return player.id === mySocketId;
-  }) || null;
+const minSwipeDistanceByPointerType = {
+  touch: 28,
+  pen: 22,
+  mouse: 12,
+  default: 24
+};
+let activeStrokePointerId = null;
+let strokeStartX = 0;
+let strokeStartY = 0;
+let activeStrokePointerType = "default";
+
+function getMinSwipeDistance(pointerType) {
+  return minSwipeDistanceByPointerType[pointerType] || minSwipeDistanceByPointerType.default;
 }
 
-function resolvePointerDirection(event) {
-  const gameArea = document.getElementById("gameArea");
-  const me = getMyPlayerState();
+function getStrokeDirection(startX, startY, endX, endY, pointerType) {
+  const dx = endX - startX;
+  const dy = startY - endY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  const minSwipeDistancePx = getMinSwipeDistance(pointerType);
 
-  if (!gameArea || !me) return null;
-
-  const rect = gameArea.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return null;
-
-  const areaX = ((event.clientX - rect.left) / rect.width) * serverWidth;
-  const areaY = ((event.clientY - rect.top) / rect.height) * serverHeight;
-  const birdX = (me.alive ? me.x : (me.ghostX !== undefined ? me.ghostX : me.x)) + birdSize / 2;
-  const birdY = (me.alive ? me.y : (me.ghostY !== undefined ? me.ghostY : me.y)) + birdSize / 2;
-  const dx = areaX - birdX;
-  const dy = birdY - areaY;
-
-  if (dx === 0 && dy === 0) {
-    return "up";
+  if (distance < minSwipeDistancePx) {
+    return null;
   }
 
   const angle = Math.atan2(dy, dx);
@@ -1100,19 +1099,81 @@ function resolvePointerDirection(event) {
   return pointerDirections[(sector + 8) % 8];
 }
 
+function resetStrokeState() {
+  activeStrokePointerId = null;
+  strokeStartX = 0;
+  strokeStartY = 0;
+  activeStrokePointerType = "default";
+}
+
 function handleGameAreaPointerDown(event) {
   if (event.button !== undefined && event.button !== 0) {
     return;
   }
 
-  const direction = resolvePointerDirection(event);
-  if (!direction) return;
+  if (activeStrokePointerId !== null) {
+    return;
+  }
+
+  activeStrokePointerId = event.pointerId;
+  strokeStartX = event.clientX;
+  strokeStartY = event.clientY;
+  activeStrokePointerType = event.pointerType || "default";
+
+  if (event.currentTarget && event.currentTarget.setPointerCapture) {
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch (error) {
+      // Pointer capture may fail on some devices; stroke still works without it.
+    }
+  }
 
   event.preventDefault();
-  handleMove(direction);
 }
 
-document.getElementById("gameArea").addEventListener("pointerdown", handleGameAreaPointerDown);
+function handleGameAreaPointerUp(event) {
+  if (event.pointerId !== activeStrokePointerId) {
+    return;
+  }
+
+  const direction = getStrokeDirection(strokeStartX, strokeStartY, event.clientX, event.clientY, activeStrokePointerType);
+  if (direction) {
+    handleMove(direction);
+  }
+
+  if (event.currentTarget && event.currentTarget.releasePointerCapture) {
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch (error) {
+      // Release may fail if capture was never set; safe to ignore.
+    }
+  }
+
+  event.preventDefault();
+  resetStrokeState();
+}
+
+function handleGameAreaPointerCancel(event) {
+  if (event.pointerId !== activeStrokePointerId) {
+    return;
+  }
+
+  if (event.currentTarget && event.currentTarget.releasePointerCapture) {
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch (error) {
+      // Safe no-op for browsers/devices that do not support pointer capture release.
+    }
+  }
+
+  event.preventDefault();
+  resetStrokeState();
+}
+
+const gameAreaElement = document.getElementById("gameArea");
+gameAreaElement.addEventListener("pointerdown", handleGameAreaPointerDown);
+gameAreaElement.addEventListener("pointerup", handleGameAreaPointerUp);
+gameAreaElement.addEventListener("pointercancel", handleGameAreaPointerCancel);
 
 document.addEventListener("keydown", function (event) {
   const activeElement = document.activeElement;
