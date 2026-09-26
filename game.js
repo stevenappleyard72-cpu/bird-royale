@@ -1213,21 +1213,41 @@ function drawCurse() {
 }
 
 function drawGame() {
-  // Client "game loop": we render whenever a fresh server state arrives.
-  // The server runs authoritative simulation at 60 Hz and emits snapshots,
-  // then the client maps that state to DOM and visual effects in this order.
-  showGameArea();
-  drawPlayers();
-  drawPickups();
-  drawObstacles();
-  drawCurse();
-  drawScoreHud();
-  drawRoundMutatorBadge();
-  drawArenaFeed();
-  applyArenaCinematics();
-  if (spectatingActive) {
-    updateSpectatorOverlay();
-  }
+  // Client "game loop": render one full frame from the current local state.
+  window.BIRD_ROYALE_RENDER_LOOP.renderFrame({
+    showGameArea,
+    drawPlayers,
+    drawPickups,
+    drawObstacles,
+    drawCurse,
+    drawScoreHud,
+    drawRoundMutatorBadge,
+    drawArenaFeed,
+    applyArenaCinematics,
+    spectatingActive,
+    updateSpectatorOverlay
+  });
+}
+
+function applyGameStateSnapshot(data) {
+  // Main client tick: apply authoritative snapshot then render/update side UI.
+  window.BIRD_ROYALE_RENDER_LOOP.applyServerSnapshot(data, {
+    updateLocalState,
+    updatePlayerList,
+    view: {
+      showGameArea,
+      drawPlayers,
+      drawPickups,
+      drawObstacles,
+      drawCurse,
+      drawScoreHud,
+      drawRoundMutatorBadge,
+      drawArenaFeed,
+      applyArenaCinematics,
+      spectatingActive,
+      updateSpectatorOverlay
+    }
+  });
 }
 
 function updatePlayerList() {
@@ -1611,9 +1631,7 @@ socket.on("gameStarted", function (data) {
 
 socket.on("gameState", function (data) {
   // Main render tick from server-authoritative loop.
-  updateLocalState(data);
-  drawGame();
-  updatePlayerList();
+  applyGameStateSnapshot(data);
 });
 
 socket.on("roundEnded", function (data) {

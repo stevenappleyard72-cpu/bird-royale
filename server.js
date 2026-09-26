@@ -3,6 +3,12 @@ const path = require("path");
 const fs = require("fs");
 const http = require("http");
 const { Server } = require("socket.io");
+const { createStartGameLoop } = require("./serverGameLoop");
+const { createRoundSystem } = require("./serverRoundSystem");
+const { createCurseSystem } = require("./serverCurseSystem");
+const { createLeaderboardPresenceSystem } = require("./serverLeaderboardPresenceSystem");
+const { createRoundLifecycleSystem } = require("./serverRoundLifecycleSystem");
+const { registerSocketHandlers } = require("./serverSocketHandlers");
 
 const app = express();
 const server = http.createServer(app);
@@ -124,136 +130,31 @@ const {
   grassDepth,
   vineDepth
 } = require("./serverConfig");
+const leaderboardPresence = createLeaderboardPresenceSystem({
+  fs,
+  io,
+  rooms,
+  BOT_ID,
+  MAX_PLAYERS,
+  leaderboardFilePath: path.join(__dirname, "leaderboard.json"),
+  addPlayerToRoom,
+  getGameState,
+  maxNameLength: 20
+});
 
-// ─── Leaderboard ──────────────────────────────────────────────────────────────
-const LEADERBOARD_FILE = path.join(__dirname, "leaderboard.json");
-const MAX_NAME_LENGTH = 20;
+const {
+  getLeaderboardData,
+  recordHourlyStat,
+  startHourlyResetScheduler,
+  validateAndRegisterName,
+  releaseSocketName,
+  queueWaitingPlayer,
+  dequeueWaitingPlayer,
+  drainWaitingQueue,
+  drainWaitingQueueToLobby
+} = leaderboardPresence;
 
-function loadHallOfFame() {
-  try {
-    if (fs.existsSync(LEADERBOARD_FILE)) {
-      return JSON.parse(fs.readFileSync(LEADERBOARD_FILE, "utf8"));
-    }
-  } catch (e) {
-    console.error("Failed to load leaderboard:", e.message);
-  }
-  return {};
-}
-
-function saveHallOfFame() {
-  try {
-    fs.writeFileSync(LEADERBOARD_FILE, JSON.stringify(hallOfFame, null, 2));
-  } catch (e) {
-    console.error("Failed to save leaderboard:", e.message);
-  }
-}
-
-let hallOfFame = loadHallOfFame();  // { [name]: { points, bestMatchWins, bestRoundWins } }
-let hourlyStats = {};               // { [name]: { matchWins, roundWins } }
-let activeNames = {};               // { [nameLower]: socketId }
-let hourlyResetTime = Date.now() + 3600000;
-let waitingQueue = {};              // { [socketId]: { name } } — sockets waiting for any open game
-
-function getLeaderboardData() {
-  const hourly = Object.entries(hourlyStats)
-    .map(([name, s]) => ({ name, matchWins: s.matchWins, roundWins: s.roundWins }))
-    .sort((a, b) => b.matchWins - a.matchWins || b.roundWins - a.roundWins)
-    .slice(0, 10);
-
-  const hof = Object.entries(hallOfFame)
-    .map(([name, d]) => ({ name, points: d.points, bestMatchWins: d.bestMatchWins, bestRoundWins: d.bestRoundWins }))
-    .sort((a, b) => b.points - a.points || b.bestMatchWins - a.bestMatchWins)
-    .slice(0, 10);
-
-  return { hourly, hof, resetAt: hourlyResetTime };
-}
-
-function recordHourlyStat(name, type) {
-  if (!hourlyStats[name]) hourlyStats[name] = { matchWins: 0, roundWins: 0 };
-  hourlyStats[name][type]++;
-}
-
-function resetHourlyLeaderboard() {
-  const entries = Object.entries(hourlyStats);
-  if (entries.length > 0) {
-    const maxMatchWins = Math.max(...entries.map(([, s]) => s.matchWins));
-    if (maxMatchWins > 0) {
-      entries
-        .filter(([, s]) => s.matchWins === maxMatchWins)
-        .forEach(([name, stats]) => {
-          if (!hallOfFame[name]) hallOfFame[name] = { points: 0, bestMatchWins: 0, bestRoundWins: 0 };
-          hallOfFame[name].points++;
-          if (stats.matchWins > hallOfFame[name].bestMatchWins ||
-              (stats.matchWins === hallOfFame[name].bestMatchWins && stats.roundWins > hallOfFame[name].bestRoundWins)) {
-            hallOfFame[name].bestMatchWins = stats.matchWins;
-            hallOfFame[name].bestRoundWins = stats.roundWins;
-          }
-        });
-      saveHallOfFame();
-    }
-  }
-  hourlyStats = {};
-  hourlyResetTime = Date.now() + 3600000;
-  io.emit("leaderboardUpdate", getLeaderboardData());
-}
-
-setInterval(resetHourlyLeaderboard, 3600000);
-
-// Drain waiting queue into a newly-started room
-function drainWaitingQueue(roomCode) {
-  const room = rooms[roomCode];
-  if (!room) return;
-
-  for (const [socketId, entry] of Object.entries(waitingQueue)) {
-    const realPlayers = Object.keys(room.players).filter(id => id !== BOT_ID).length;
-    const totalOccupants = realPlayers + Object.keys(room.spectators || {}).length;
-    if (totalOccupants >= MAX_PLAYERS) break;
-
-    const sock = io.sockets.sockets.get(socketId);
-    if (!sock) { delete waitingQueue[socketId]; continue; }
-
-    room.spectators[socketId] = { id: socketId, name: entry.name };
-    sock.join(roomCode);
-    sock.emit("joinedAsSpectator", getGameState(roomCode));
-    delete waitingQueue[socketId];
-  }
-}
-
-// Drain waiting queue into a lobby that hasn't started yet (as real players)
-function drainWaitingQueueToLobby(roomCode) {
-  const room = rooms[roomCode];
-  if (!room || room.started) return;
-
-  for (const [socketId, entry] of Object.entries(waitingQueue)) {
-    const playerCount = Object.keys(room.players).filter(id => id !== BOT_ID).length;
-    if (playerCount >= MAX_PLAYERS) break;
-
-    const sock = io.sockets.sockets.get(socketId);
-    if (!sock) { delete waitingQueue[socketId]; continue; }
-
-    addPlayerToRoom(sock, roomCode, entry.name);
-    delete waitingQueue[socketId];
-  }
-
-  io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
-}
-
-function validateAndRegisterName(socket, playerName) {
-  const trimmed = (playerName || "").trim().slice(0, MAX_NAME_LENGTH);
-  if (trimmed.length < 2) return { error: "Name must be at least 2 characters." };
-  const nameLower = trimmed.toLowerCase();
-  if (nameLower === "bot") return { error: '"Bot" is a reserved name.' };
-  if (activeNames[nameLower] && activeNames[nameLower] !== socket.id) {
-    return { error: `The name "${trimmed}" is already used by an active player.` };
-  }
-  // Clear any previous name registered to this socket (they may have renamed)
-  for (const [key, id] of Object.entries(activeNames)) {
-    if (id === socket.id) { delete activeNames[key]; break; }
-  }
-  activeNames[nameLower] = socket.id;
-  return { name: trimmed };
-}
-// ─────────────────────────────────────────────────────────────────────────
+startHourlyResetScheduler();
 
 app.use(express.static(__dirname));
 
@@ -271,50 +172,20 @@ function clampTargetScore(value) {
   return Math.max(2, Math.min(5, score));
 }
 
-function getSpeedMultiplier(room) {
-  const base = (room.gameSpeed || 10) / 10;
-  const mutator = roundMutators[(room && room.currentMutatorId) || "standard"] || roundMutators.standard;
-  const mutatorSpeed = mutator.speedMult || 1;
-  return isSuddenDeath(room) ? base * 1.2 * mutatorSpeed : base * mutatorSpeed;
-}
-
-function pickRoundMutator(room) {
-  if (!room) return "standard";
-  if (!room.roundCounter || room.roundCounter <= 1) return "standard";
-
-  const choices = rotatingMutatorPool.filter(id => id !== room.lastMutatorId);
-  const pool = choices.length > 0 ? choices : rotatingMutatorPool;
-  return pool[Math.floor(Math.random() * pool.length)];
-}
-
-function getRoundMutator(room) {
-  return roundMutators[(room && room.currentMutatorId) || "standard"] || roundMutators.standard;
-}
-
-function getRoundStartTime(room) {
-  return room.roundLiveStartTime || room.roundStartTime || null;
-}
-
-function getRoundElapsedMs(room) {
-  const startTime = getRoundStartTime(room);
-  return startTime ? Date.now() - startTime : 0;
-}
-
-function isSuddenDeath(room) {
-  return getRoundStartTime(room) !== null && getRoundElapsedMs(room) >= suddenDeathStartMs;
-}
-
-function getRoundTimeLeft(room) {
-  const startTime = getRoundStartTime(room);
-  if (!startTime) return 0;
-  return Math.max(0, Math.ceil((suddenDeathStartMs - getRoundElapsedMs(room)) / 1000));
-}
-
-function getRoundPhase(room) {
-  const startTime = getRoundStartTime(room);
-  if (!startTime) return room.started ? "countdown" : "lobby";
-  return isSuddenDeath(room) ? "suddenDeath" : "scramble";
-}
+const {
+  getRoundMutator,
+  getRoundStartTime,
+  getRoundElapsedMs,
+  isSuddenDeath,
+  getRoundTimeLeft,
+  getRoundPhase,
+  pickRoundMutator,
+  getSpeedMultiplier
+} = createRoundSystem({
+  roundMutators,
+  rotatingMutatorPool,
+  suddenDeathStartMs
+});
 
 function createPlayerState(id, name, colour, x, y) {
   return {
@@ -1812,732 +1683,125 @@ function updateMonster(room, roomCode) {
   }
 }
 
-// ── Cursed Ball and Chain helpers ──────────────────────────────────────────────
-
-function findNearestAlivePlayerId(room, x, y) {
-  const alive = getAlivePlayers(room);
-  if (alive.length === 0) return null;
-  return alive.reduce((best, p) => {
-    const da = Math.hypot((p.x + birdSize / 2) - x, (p.y + birdSize / 2) - y);
-    const db = Math.hypot((best.x + birdSize / 2) - x, (best.y + birdSize / 2) - y);
-    return da < db ? p : best;
-  }).id;
-}
-
-function pointDistToSegment(px, py, x1, y1, x2, y2) {
-  const dx = x2 - x1, dy = y2 - y1;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq < 0.001) return Math.hypot(px - x1, py - y1);
-  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
-  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
-}
-
-// Returns true if any obstacle's solid section blocks the straight line between two points
-function curseBeamBlocked(cx, cy, tx, ty, obstacles) {
-  if (Math.abs(tx - cx) < 1) return false;
-  const minX = Math.min(cx, tx);
-  const maxX = Math.max(cx, tx);
-  for (const obs of obstacles) {
-    if (obs.x + obs.width <= minX || obs.x >= maxX) continue;
-    const sampleX = obs.x + obs.width / 2;
-    const t = (sampleX - cx) / (tx - cx);
-    if (t <= 0 || t >= 1) continue;
-    const lineY = cy + t * (ty - cy);
-    if (lineY < obs.topHeight) return true;
-    if (lineY > gameHeight - obs.bottomHeight) return true;
-  }
-  return false;
-}
-
-function updateCurse(room, roomCode) {
-  const now = Date.now();
-  const speedMultiplier = getSpeedMultiplier(room);
-  const mutator = getRoundMutator(room);
-  const curseSpawnWindow = curseSpawnInterval * (mutator.curseSpawnMult || 1);
-  const curseChaseMult = mutator.curseChaseMult || 1;
-
-  // ── Attached: follow carrier, detect death ─────────────────────────────────
-  if (room.curse && room.curse.state === 'attached') {
-    const carrier = room.players[room.curse.carrierId];
-    if (!carrier || !carrier.alive) {
-      room.curse = null;
-      room.lastCurseSpawn = now;
-      io.to(roomCode).emit('curseDespawned', { reason: 'death' });
-      return;
-    }
-    // Keep server position synced to carrier for clients
-    room.curse.x = carrier.x;
-    room.curse.y = carrier.y + birdSize;
-    return;
-  }
-
-  // ── Roaming: chase, beam checks, collision ─────────────────────────────────
-  if (room.curse && room.curse.state === 'roaming') {
-    // Refresh target if current one disappeared or died
-    if (!room.curse.targetId || !room.players[room.curse.targetId] || !room.players[room.curse.targetId].alive) {
-      room.curse.targetId = findNearestAlivePlayerId(room, room.curse.x, room.curse.y);
-      if (!room.curse.targetId) {
-        room.curse = null;
-        room.lastCurseSpawn = now;
-        io.to(roomCode).emit('curseDespawned', { reason: 'notarget' });
-        return;
-      }
-    }
-
-    const target    = room.players[room.curse.targetId];
-    const targetCX  = target.x + birdSize / 2;
-    const targetCY  = target.y + birdSize / 2;
-    const curseCX   = room.curse.x + curseBallSize / 2;
-    const curseCY   = room.curse.y + curseBallSize / 2;
-
-    // If a column now sits between curse and target → break lock, despawn
-    if (curseBeamBlocked(curseCX, curseCY, targetCX, targetCY, room.obstacles)) {
-      room.curse = null;
-      room.lastCurseSpawn = now;
-      io.to(roomCode).emit('curseDespawned', { reason: 'blocked' });
-      return;
-    }
-
-    // Any non-target player crossing the beam steals the lock
-    if (now - room.curse.lastTargetSwitch > curseTargetSwitchCooldown) {
-      for (const p of Object.values(room.players)) {
-        if (!p.alive || p.id === room.curse.targetId) continue;
-        const dist = pointDistToSegment(
-          p.x + birdSize / 2, p.y + birdSize / 2,
-          curseCX, curseCY, targetCX, targetCY
-        );
-        if (dist < curseBeamInterceptDist) {
-          room.curse.targetId      = p.id;
-          room.curse.lastTargetSwitch = now;
-          io.to(roomCode).emit('curseTargetChanged', { targetId: p.id });
-          break;
-        }
-      }
-    }
-
-    // Steer toward current target
-    const dx   = targetCX - curseCX;
-    const dy   = targetCY - curseCY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist > 1) {
-      room.curse.velocityX += (dx / dist) * curseChaseAcceleration * speedMultiplier * curseChaseMult;
-      room.curse.velocityY += (dy / dist) * curseChaseAcceleration * speedMultiplier * curseChaseMult;
-    }
-
-    // Cap speed
-    const speed = Math.sqrt(room.curse.velocityX ** 2 + room.curse.velocityY ** 2);
-    if (speed > curseMaxSpeed * speedMultiplier) {
-      room.curse.velocityX = (room.curse.velocityX / speed) * curseMaxSpeed * speedMultiplier;
-      room.curse.velocityY = (room.curse.velocityY / speed) * curseMaxSpeed * speedMultiplier;
-    }
-
-    room.curse.x += room.curse.velocityX;
-    room.curse.y += room.curse.velocityY;
-
-    // Clamp inside visible arena (allow entering from right edge)
-    room.curse.x = Math.max(-curseBallSize, Math.min(gameWidth, room.curse.x));
-    room.curse.y = Math.max(vineDepth, Math.min(gameHeight - grassDepth - curseBallSize, room.curse.y));
-
-    // Check collision with alive players
-    for (const p of Object.values(room.players)) {
-      if (!p.alive) continue;
-      const colDist = Math.hypot(
-        (p.x + birdSize / 2) - (room.curse.x + curseBallSize / 2),
-        (p.y + birdSize / 2) - (room.curse.y + curseBallSize / 2)
-      );
-      if (colDist < (birdSize / 2 + curseBallSize / 2)) {
-        const hasActivePowerup =
-          (p.shieldExpiry   !== null && now < p.shieldExpiry) ||
-          (p.ramBoostExpiry !== null && now < p.ramBoostExpiry);
-        if (hasActivePowerup) {
-          // Powerup sacrificed to destroy the roaming curse
-          p.shieldExpiry   = null;
-          p.ramBoostExpiry = null;
-          room.curse = null;
-          room.lastCurseSpawn = now;
-          io.to(roomCode).emit('curseDestroyedByPowerup', { playerId: p.id });
-        } else {
-          room.curse.state     = 'attached';
-          room.curse.carrierId = p.id;
-          room.curse.targetId  = null;
-          room.curse.x         = p.x;
-          room.curse.y         = p.y + birdSize;
-          io.to(roomCode).emit('curseAttached', { carrierId: p.id });
-        }
-        return;
-      }
-    }
-    return;
-  }
-
-  // ── No curse: check spawn cooldown ────────────────────────────────────────
-  if (!room.curse && now - room.lastCurseSpawn > curseSpawnWindow) {
-    if (getAlivePlayers(room).length < 2) return;   // need 2+ players to be meaningful
-    const spawnY = randomNumber(vineDepth + curseBallSize, gameHeight - grassDepth - curseBallSize * 2);
-    room.curse = {
-      state:     'roaming',
-      x:         gameWidth + curseBallSize,
-      y:         spawnY,
-      velocityX: -0.6,
-      velocityY: 0,
-      targetId:  null,
-      carrierId: null,
-      lastTargetSwitch: now - curseTargetSwitchCooldown  // allow targeting immediately
-    };
-    room.curse.targetId = findNearestAlivePlayerId(room, room.curse.x, room.curse.y);
-    if (!room.curse.targetId) { room.curse = null; return; }
-    io.to(roomCode).emit('curseSpawned', { targetId: room.curse.targetId });
-  }
-}
-
-// Stomp transfer: cursed carrier above another bird and diving → pass the curse
-function checkCurseTransfer(room, roomCode) {
-  if (!room.curse || room.curse.state !== 'attached') return;
-  const carrier = room.players[room.curse.carrierId];
-  if (!carrier || !carrier.alive) return;
-
-  for (const p of Object.values(room.players)) {
-    if (!p.alive || p.id === room.curse.carrierId) continue;
-
-    const dx = (carrier.x + birdSize / 2) - (p.x + birdSize / 2);
-    const dy = (carrier.y + birdSize / 2) - (p.y + birdSize / 2);
-    if (Math.sqrt(dx * dx + dy * dy) >= birdSize) continue;
-
-    // Stomp: carrier center is above victim center (dy < 0) and moving downward.
-    // dy < -birdSize * 0.15 ensures "clearly above" even mid-overlap.
-    // velocityY > 0 confirms a downward trajectory — no strict angle requirement
-    // so side-dives with downward velocity still count, as the spec intended.
-    const isAbove    = dy < -(birdSize * 0.15);
-    const movingDown = carrier.velocityY > 0.8;
-
-    if (isAbove && movingDown) {
-      const fromId = room.curse.carrierId;
-      room.curse.carrierId = p.id;
-      room.curse.x = p.x;
-      room.curse.y = p.y + birdSize;
-      io.to(roomCode).emit('curseTransferred', { fromId, toId: p.id });
-      return;
-    }
-  }
-}
-
-function endRound(roomCode, winner) {
-  const room = rooms[roomCode];
-
-  if (!room) return;
-
-  const resolvedWinner = winner || getRoundWinner(room);
-  const winReason = getRoundWinReason(room, resolvedWinner);
-
-  room.started = false;
-
-  // Clear curse immediately — round is over, show clean state in final broadcast
-  room.curse = null;
-
-  if (room.gameLoop) {
-    clearInterval(room.gameLoop);
-    room.gameLoop = null;
-  }
-
-  if (resolvedWinner) {
-    awardPoints(resolvedWinner, roundWinnerBonusPoints + (isSuddenDeath(room) ? suddenDeathWinnerBonusPoints : 0), room, roomCode);
-    resolvedWinner.score++;
-  }
-
-  const matchWinner = resolvedWinner && resolvedWinner.score >= room.targetScore ? resolvedWinner : null;
-  const roundHighlights = buildRoundHighlights(room);
-
-  // Track hourly leaderboard stats (bot excluded)
-  if (resolvedWinner && resolvedWinner.id !== BOT_ID) {
-    recordHourlyStat(resolvedWinner.name, "roundWins");
-  }
-  if (matchWinner && matchWinner.id !== BOT_ID) {
-    recordHourlyStat(matchWinner.name, "matchWins");
-    io.emit("leaderboardUpdate", getLeaderboardData());
-  }
-
-  // When the whole match ends, notify waiting spectators they can now join
-  if (matchWinner && Object.keys(room.spectators || {}).length > 0) {
-    io.to(roomCode).emit("spectatorsCanJoin", {
-      spectatorCount: Object.keys(room.spectators).length
-    });
-  }
-
-  broadcastGameState(roomCode);
-
-  io.to(roomCode).emit("roundEnded", {
-    roundWinner: resolvedWinner || null,
-    winReason,
-    roundWinRule,
-    roundHighlights,
-    matchWinner,
-    targetScore: room.targetScore,
-    players: getPlayersInRoom(roomCode),
-    obstacles: room.obstacles,
-    obstaclesPassed: room.obstaclesPassed
-  });
-
-  // Auto-restart next round after a short pause (unless the match just ended)
-  if (!matchWinner) {
-    if (room.autoRestartTimer) clearTimeout(room.autoRestartTimer);
-    room.autoRestartTimer = setTimeout(() => {
-      room.autoRestartTimer = null;
-      if (rooms[roomCode]) startRoundForRoom(roomCode);
-    }, 8000);
-    io.to(roomCode).emit("autoRestartCountdown", { seconds: 8 });
-  }
-}
-
-function checkForRoundEnd(roomCode) {
-  const room = rooms[roomCode];
-
-  if (!room || !room.started) return;
-
-  const alivePlayers = getAlivePlayers(room);
-  const phase = getRoundPhase(room);
-  const hasBot = Boolean(room.players[BOT_ID]);
-  const humanPlayerCount = Object.keys(room.players).filter(id => id !== BOT_ID).length;
-  const isSoloVsBotRound = hasBot && humanPlayerCount === 1;
-
-  if (isSoloVsBotRound && alivePlayers.length <= 1) {
-    if (!room.victoryTimer) {
-      room.victoryTimer = setTimeout(() => {
-        endRound(roomCode, getRoundWinner(room));
-        room.victoryTimer = null;
-      }, 350);
-    }
-    return;
-  }
-
-  if (alivePlayers.length <= 1) {
-    // First time detecting end condition, start victory timer to show explosions
-    if (!room.victoryTimer) {
-      room.victoryTimer = setTimeout(() => {
-        endRound(roomCode, getRoundWinner(room));
-        room.victoryTimer = null;
-      }, phase === "suddenDeath" ? 600 : 350);
-    }
-  }
-}
-
-// ── Ghost physics update ───────────────────────────────────────────────────
-function updateGhosts(room) {
-  const speedMultiplier = getSpeedMultiplier(room);
-  for (const player of Object.values(room.players)) {
-    if (player.alive || player.id === BOT_ID) continue;
-    player.ghostVY = (player.ghostVY || 0) + gravity * speedMultiplier * 0.75;
-    player.ghostY  = (player.ghostY  || gameHeight / 2) + player.ghostVY * speedMultiplier;
-    player.ghostX  = (player.ghostX  || gameWidth  / 2) + (player.ghostVX || 0) * speedMultiplier;
-    player.ghostVX = (player.ghostVX || 0) * horizontalDrag;
-    // Clamp inside arena
-    player.ghostX = Math.max(0, Math.min(gameWidth  - birdSize, player.ghostX));
-    player.ghostY = Math.max(vineDepth, Math.min(gameHeight - birdSize - grassDepth, player.ghostY));
-  }
-}
-
-// ── Speed ramp: gradually doubles base speed over 50s ─────────────────────
-function updateSpeedRamp(room) {
-  const startTime = room.roundLiveStartTime || room.roundStartTime;
-  if (!startTime || !room.baseGameSpeed) return;
-  const elapsed    = (Date.now() - startTime) / 1000;
-  const rampFactor = Math.min(elapsed / 50, 1.0);
-  const maxRamp    = Math.min(room.baseGameSpeed, 15); // cap bonus at +15 units
-  room.gameSpeed   = room.baseGameSpeed + maxRamp * rampFactor;
-}
-
-// Starts a new round and prepares all per-round state before the countdown.
-// This function is shared by manual host start and automatic round restart.
-function startRoundForRoom(roomCode) {
-  const room = rooms[roomCode];
-  if (!room || room.started) return;
-
-  room.roomCode = roomCode;
-
-  const playerCount = Object.keys(room.players).length;
-  if (playerCount === 1) {
-    addBotToRoom(roomCode);
-  }
-
-  resetPlayersForRound(room);
-  room.roundStartTime  = Date.now();       // set first so createObstacle can use it
-  room.roundCounter = (room.roundCounter || 0) + 1;
-  room.currentMutatorId = pickRoundMutator(room);
-  room.lastMutatorId = room.currentMutatorId;
-  room.roundLiveStartTime = null;
-  room.roundEndTime = room.roundStartTime + roundDurationMs;
-  room.roundStats = {};
-  room.baseGameSpeed   = room.gameSpeed;   // snapshot for speed ramp
-  room.obstacles       = createInitialObstacles(room);
-  room.obstaclesPassed = 0;
-  room.pickups         = [];
-  room.goldenTarget    = null;
-  room.lastGoldenTargetSpawn = Date.now();
-  room.lastPickupSpawn = 0;
-  room.lastMonsterSpawn = Date.now();
-  room.wind = { active: false, direction: 1, strength: 0, endAt: 0 };
-  room.lastWindGustAt = Date.now();
-  room.curse           = null;
-  room.lastCurseSpawn  = Date.now();
-
-  const mutator = getRoundMutator(room);
-  if (room.currentMutatorId !== "standard") {
-    emitArenaCallout(roomCode, "power", "ROUND TWIST: " + mutator.name.toUpperCase(), null);
-  }
-
-  io.to(roomCode).emit("gameStarting", getGameState(roomCode));
-
-  setTimeout(() => {
-    if (!rooms[roomCode] || rooms[roomCode].started) return;
-    rooms[roomCode].started = true;
-    rooms[roomCode].roundLiveStartTime = Date.now();
-    io.to(roomCode).emit("gameStarted", getGameState(roomCode));
-    startGameLoop(roomCode);
-    drainWaitingQueue(roomCode);
-  }, 4000);
-}
-// ──────────────────────────────────────────────────────────────────────────
-
-function startGameLoop(roomCode) {
-  const room = rooms[roomCode];
-
-  if (!room) return;
-
-  if (room.gameLoop) {
-    clearInterval(room.gameLoop);
-  }
-
-  // Server-authoritative simulation loop.
-  // Order matters: movement systems update first, then collisions/damage,
-  // then reward systems and final state broadcast for clients to render.
-  room.gameLoop = setInterval(() => {
-    const activeRoom = rooms[roomCode];
-
-    if (!activeRoom || !activeRoom.started) {
-      clearInterval(room.gameLoop);
-      return;
-    }
-
-    // 1) World state progression
-    updateSpeedRamp(activeRoom);
-    updateWind(activeRoom, roomCode);
-
-    // 2) Entity movement / AI
-    updatePlayerPhysics(activeRoom);
-    updateBotAI(activeRoom);
-    updateGhosts(activeRoom);
-    updateCurse(activeRoom, roomCode);
-    checkCurseTransfer(activeRoom, roomCode);
-
-    // 3) Interactions and hazards
-    applyPlayerCollisions(activeRoom, roomCode);
-    updateMonster(activeRoom, roomCode);
-    updateObstacles(activeRoom, roomCode);
-
-    // 4) Pickups, objectives, and scoring
-    updateGoldenTarget(activeRoom, roomCode);
-    updatePickups(activeRoom, roomCode);
-    applyObstacleDeaths(activeRoom, roomCode);
-    updateSurvivalScoring(activeRoom);
-
-    // 5) Publish frame and end-round checks
-    broadcastGameState(roomCode);
-    checkForRoundEnd(roomCode);
-  }, 1000 / 60);
-}
-
-io.on("connection", (socket) => {
-  socket.on("createGame", ({ playerName, roomCode, gameSpeed, targetScore }) => {
-    const nameCheck = validateAndRegisterName(socket, playerName);
-    if (nameCheck.error) {
-      socket.emit("joinError", nameCheck.error);
-      return;
-    }
-
-    rooms[roomCode] = {
-      roomCode,
-      hostId: socket.id,
-      players: {},
-      spectators: {},
-      started: false,
-      obstacles: [],
-      obstaclesPassed: 0,
-      gameLoop: null,
-      gameSpeed: clampGameSpeed(gameSpeed),
-      targetScore: clampTargetScore(targetScore),
-      pickups: [],
-      goldenTarget: null,
-      lastGoldenTargetSpawn: 0,
-      lastPickupSpawn: 0,
-      lastMonsterSpawn: 0,
-      curse: null,
-      lastCurseSpawn: 0,
-      autoRestartTimer: null,
-      baseGameSpeed: null,
-      roundStartTime: null,
-      roundCounter: 0,
-      currentMutatorId: "standard",
-      lastMutatorId: null,
-      wind: { active: false, direction: 1, strength: 0, endAt: 0 },
-      lastWindGustAt: 0
-    };
-
-    addPlayerToRoom(socket, roomCode, nameCheck.name);
-    drainWaitingQueueToLobby(roomCode);
-
-    io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
-  });
-
-  socket.on("joinGame", ({ playerName, roomCode }) => {
-    const room = rooms[roomCode];
-
-    if (!room) {
-      socket.emit("joinError", "Game code not found.");
-      return;
-    }
-
-    const nameCheck = validateAndRegisterName(socket, playerName);
-    if (nameCheck.error) {
-      socket.emit("joinError", nameCheck.error);
-      return;
-    }
-
-    if (room.started) {
-      // Mid-game join: become a spectator until the match ends
-      room.spectators[socket.id] = { id: socket.id, name: nameCheck.name };
-      socket.join(roomCode);
-      socket.emit("joinedAsSpectator", getGameState(roomCode));
-      return;
-    }
-
-    addPlayerToRoom(socket, roomCode, nameCheck.name);
-
-    io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
-  });
-
-  socket.on("requestStartGame", ({ roomCode }) => {
-    const room = rooms[roomCode];
-
-    if (!room) return;
-
-    if (socket.id !== room.hostId) {
-      socket.emit("joinError", "Only the game creator can start the round.");
-      return;
-    }
-
-    if (room.started) return;
-
-    // Cancel any pending auto-restart so we don't double-start
-    if (room.autoRestartTimer) {
-      clearTimeout(room.autoRestartTimer);
-      room.autoRestartTimer = null;
-    }
-
-    startRoundForRoom(roomCode);
-  });
-
-  socket.on("requestRematch", ({ roomCode }) => {
-    const room = rooms[roomCode];
-    if (!room) return;
-    if (socket.id !== room.hostId) return;
-    if (room.started) return;
-
-    // Cancel any pending auto-restart
-    if (room.autoRestartTimer) {
-      clearTimeout(room.autoRestartTimer);
-      room.autoRestartTimer = null;
-    }
-
-    // Admit waiting spectators as players (with ghost fields)
-    for (const specId in room.spectators) {
-      const spec = room.spectators[specId];
-      const playerCount = Object.keys(room.players).length;
-      room.players[specId] = createPlayerState(
-        specId,
-        spec.name,
-        playerColours[playerCount % playerColours.length],
-        70 + playerCount * 55,
-        220
-      );
-    }
-    room.spectators = {};
-
-    // Reset all scores for the rematch
-    for (const player of Object.values(room.players)) {
-      player.score = 0;
-      player.points = 0;
-      player.health = playerMaxHealth;
-      player.maxHealth = playerMaxHealth;
-      player.passCombo = 0;
-      player.scoredObstacleIds = {};
-      player.lastDamageTime = 0;
-      player.lastCollisionTime = 0;
-    }
-
-    // Remove bot if real players now fill the room
-    if (Object.keys(room.players).length > 1 && room.players[BOT_ID]) {
-      delete room.players[BOT_ID];
-    }
-
-    io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
-  });
-
-  socket.on("requestLeaderboard", () => {
-    socket.emit("leaderboardUpdate", getLeaderboardData());
-  });
-
-  socket.on("findOpenGame", ({ playerName }) => {
-    const nameCheck = validateAndRegisterName(socket, playerName);
-    if (nameCheck.error) {
-      socket.emit("joinError", nameCheck.error);
-      return;
-    }
-
-    // Priority 1: a lobby that hasn't started yet and has room for another player
-    const lobbyRoom = Object.entries(rooms).find(([, room]) => {
-      if (room.started) return false;
-      const playerCount = Object.keys(room.players).filter(id => id !== BOT_ID).length;
-      return playerCount < MAX_PLAYERS;
-    });
-
-    if (lobbyRoom) {
-      const [roomCode] = lobbyRoom;
-      addPlayerToRoom(socket, roomCode, nameCheck.name);
-      io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
-      return;
-    }
-
-    // Priority 2: a running room that has spectator capacity
-    const openRoom = Object.entries(rooms).find(([, room]) => {
-      if (!room.started) return false;
-      const realPlayers = Object.keys(room.players).filter(id => id !== BOT_ID).length;
-      const totalOccupants = realPlayers + Object.keys(room.spectators || {}).length;
-      return totalOccupants < MAX_PLAYERS;
-    });
-
-    if (!openRoom) {
-      // No game available — hold in queue and keep name registered
-      waitingQueue[socket.id] = { name: nameCheck.name };
-      socket.emit("quickJoinQueued");
-      return;
-    }
-
-    const [roomCode, room] = openRoom;
-    room.spectators[socket.id] = { id: socket.id, name: nameCheck.name };
-    socket.join(roomCode);
-    socket.emit("joinedAsSpectator", getGameState(roomCode));
-  });
-
-  socket.on("cancelQuickJoin", () => {
-    if (waitingQueue[socket.id]) {
-      delete waitingQueue[socket.id];
-      for (const [key, id] of Object.entries(activeNames)) {
-        if (id === socket.id) { delete activeNames[key]; break; }
-      }
-    }
-  });
-
-  socket.on("playerInput", ({ roomCode, direction }) => {
-    const room = rooms[roomCode];
-
-    if (!room || !room.players[socket.id]) return;
-
-    const player = room.players[socket.id];
-
-    if (!room.started || !player.alive) return;
-
-    applyInput(player, direction, room);
-  });
-
-  // Ghost input: movement and spook for dead players
-  socket.on("ghostInput", ({ roomCode, direction }) => {
-    const room = rooms[roomCode];
-    if (!room || !room.players[socket.id]) return;
-    const player = room.players[socket.id];
-    if (player.alive || !room.started) return;
-    const now = Date.now();
-
-    if (direction === "spook") {
-      if (now - (player.ghostLastSpook || 0) < GHOST_SPOOK_COOLDOWN) return;
-      player.ghostLastSpook = now;
-      const spookCX = (player.ghostX || gameWidth  / 2) + birdSize / 2;
-      const spookCY = (player.ghostY || gameHeight / 2) + birdSize / 2;
-      for (const other of Object.values(room.players)) {
-        if (!other.alive) continue;
-        const dx   = (other.x + birdSize / 2) - spookCX;
-        const dy   = (other.y + birdSize / 2) - spookCY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < GHOST_SPOOK_RADIUS && dist > 0) {
-          const falloff = 1 - dist / GHOST_SPOOK_RADIUS;
-          const resistanceMult = getKnockbackMultiplier(other, now);
-          other.velocityX += (dx / dist) * GHOST_SPOOK_FORCE * falloff * resistanceMult;
-          other.velocityY += (dy / dist) * GHOST_SPOOK_FORCE * falloff * resistanceMult;
-          keepPlayerInsideArena(other);
-        }
-      }
-      io.to(roomCode).emit("ghostSpook", {
-        ghostId: socket.id,
-        x: spookCX - birdSize / 2,
-        y: spookCY - birdSize / 2
-      });
-      return;
-    }
-
-    // Ghost directional movement
-    if (direction === "up")    { player.ghostVY = flapStrength; }
-    if (direction === "left")  { player.ghostVY = sideFlapStrength; player.ghostVX = (player.ghostVX || 0) - horizontalPush; }
-    if (direction === "right") { player.ghostVY = sideFlapStrength; player.ghostVX = (player.ghostVX || 0) + horizontalPush; }
-    if (direction === "up-left") { player.ghostVY = flapStrength * 0.92; player.ghostVX = (player.ghostVX || 0) - horizontalPush * 0.82; }
-    if (direction === "up-right") { player.ghostVY = flapStrength * 0.92; player.ghostVX = (player.ghostVX || 0) + horizontalPush * 0.82; }
-    if (direction === "down-left") { player.ghostVY = Math.max(player.ghostVY || 0, 6.2); player.ghostVX = (player.ghostVX || 0) - horizontalPush * 0.82; }
-    if (direction === "down-right") { player.ghostVY = Math.max(player.ghostVY || 0, 6.2); player.ghostVX = (player.ghostVX || 0) + horizontalPush * 0.82; }
-  });
-
-  socket.on("disconnect", () => {
-    // Free this player's name so others (or themselves on reconnect) can claim it
-    delete waitingQueue[socket.id];  // also remove from quick-join queue if waiting
-    for (const [nameLower, id] of Object.entries(activeNames)) {
-      if (id === socket.id) { delete activeNames[nameLower]; break; }
-    }
-
-    for (const roomCode in rooms) {
-      const room = rooms[roomCode];
-
-      // Remove from spectators if they were spectating
-      if (room.spectators && room.spectators[socket.id]) {
-        delete room.spectators[socket.id];
-      }
-
-      if (room.players[socket.id]) {
-        delete room.players[socket.id];
-
-        if (Object.keys(room.players).length === 0) {
-          if (room.gameLoop) clearInterval(room.gameLoop);
-          if (room.victoryTimer) clearTimeout(room.victoryTimer);
-          if (room.autoRestartTimer) clearTimeout(room.autoRestartTimer);
-          delete rooms[roomCode];
-          return;
-        }
-
-        // Only send roomUpdated (lobby-reset event) when the game isn't running.
-        // During a live game, roomUpdated resets gameRunning = false on all clients,
-        // making surviving players unable to send input. The continuous gameState
-        // broadcast is sufficient to reflect the updated player list mid-game.
-        if (!room.started) {
-          io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
-        }
-
-        // Clean up curse if the carrier disconnected mid-game
-        if (room.curse && room.curse.carrierId === socket.id) {
-          room.curse = null;
-          room.lastCurseSpawn = Date.now();
-          io.to(roomCode).emit('curseDespawned', { reason: 'death' });
-        }
-
-        broadcastGameState(roomCode);
-        checkForRoundEnd(roomCode);
-      }
-    }
-  });
+const { updateCurse, checkCurseTransfer } = createCurseSystem({
+  io,
+  getAlivePlayers,
+  randomNumber,
+  getSpeedMultiplier,
+  getRoundMutator,
+  birdSize,
+  curseBallSize,
+  curseSpawnInterval,
+  curseTargetSwitchCooldown,
+  curseBeamInterceptDist,
+  curseChaseAcceleration,
+  curseMaxSpeed,
+  gameWidth,
+  gameHeight,
+  vineDepth,
+  grassDepth
+});
+const roundLifecycle = createRoundLifecycleSystem({
+  io,
+  rooms,
+  BOT_ID,
+  birdSize,
+  gameWidth,
+  gameHeight,
+  gravity,
+  horizontalDrag,
+  vineDepth,
+  grassDepth,
+  roundDurationMs,
+  roundWinRule,
+  roundWinnerBonusPoints,
+  suddenDeathWinnerBonusPoints,
+  getSpeedMultiplier,
+  getRoundPhase,
+  getRoundMutator,
+  isSuddenDeath,
+  pickRoundMutator,
+  getAlivePlayers,
+  getRoundWinner,
+  getRoundWinReason,
+  getPlayersInRoom,
+  awardPoints,
+  buildRoundHighlights,
+  broadcastGameState,
+  addBotToRoom,
+  resetPlayersForRound,
+  createInitialObstacles,
+  emitArenaCallout,
+  getGameState,
+  recordHourlyStat,
+  getLeaderboardData
+});
+
+const {
+  setLoopHooks,
+  updateGhosts,
+  updateSpeedRamp,
+  startRoundForRoom,
+  endRound,
+  checkForRoundEnd
+} = roundLifecycle;
+
+const startGameLoop = createStartGameLoop(rooms, {
+  updateSpeedRamp,
+  updateWind,
+  updatePlayerPhysics,
+  updateBotAI,
+  updateGhosts,
+  updateCurse,
+  checkCurseTransfer,
+  applyPlayerCollisions,
+  updateMonster,
+  updateObstacles,
+  updateGoldenTarget,
+  updatePickups,
+  applyObstacleDeaths,
+  updateSurvivalScoring,
+  broadcastGameState,
+  checkForRoundEnd
+});
+
+setLoopHooks({
+  startGameLoop,
+  drainWaitingQueue
+});
+
+registerSocketHandlers(io, {
+  rooms,
+  BOT_ID,
+  MAX_PLAYERS,
+  playerColours,
+  playerMaxHealth,
+  birdSize,
+  gameWidth,
+  gameHeight,
+  GHOST_SPOOK_RADIUS,
+  GHOST_SPOOK_FORCE,
+  GHOST_SPOOK_COOLDOWN,
+  flapStrength,
+  sideFlapStrength,
+  horizontalPush,
+  clampGameSpeed,
+  clampTargetScore,
+  createPlayerState,
+  validateAndRegisterName,
+  addPlayerToRoom,
+  drainWaitingQueueToLobby,
+  startRoundForRoom,
+  getGameState,
+  getLeaderboardData,
+  queueWaitingPlayer,
+  dequeueWaitingPlayer,
+  releaseSocketName,
+  applyInput,
+  getKnockbackMultiplier,
+  keepPlayerInsideArena,
+  broadcastGameState,
+  checkForRoundEnd
 });
 
 server.listen(PORT, () => {

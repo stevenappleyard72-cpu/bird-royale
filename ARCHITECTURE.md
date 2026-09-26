@@ -13,13 +13,20 @@ This document explains how the server and client loops work together.
 
 - `server.js`: Room lifecycle, socket events, and authoritative simulation functions.
 - `serverConfig.js`: Gameplay constants and mutator definitions.
+- `serverGameLoop.js`: Server tick orchestration (`runServerTick`, `createStartGameLoop`).
+- `serverRoundSystem.js`: Round/mutator/phase helpers (`getRoundPhase`, `isSuddenDeath`, etc.).
+- `serverCurseSystem.js`: Cursed-ball hazard behavior (`updateCurse`, `checkCurseTransfer`).
+- `serverRoundLifecycleSystem.js`: Round start/end lifecycle and ghost/speed progression helpers.
+- `serverLeaderboardPresenceSystem.js`: Leaderboard persistence, hourly rollups, name registry, and quick-join queueing.
+- `serverSocketHandlers.js`: Socket.IO event registration for matchmaking, lifecycle commands, input, and disconnect cleanup.
 - `game.js`: Client state store, DOM rendering pipeline, and input handling.
 - `ambientPresets.js`: Client ambience preset mapping by mutator id.
+- `clientRenderLoop.js`: Client render tick orchestration from local snapshot state.
 - `styles.css`: Rendering styles, layering, and animation behavior.
 
 ## Server Loop (Authoritative)
 
-Entry point: `startGameLoop(roomCode)` in `server.js`.
+Entry point: `startGameLoop(roomCode)` in `server.js` (created by `serverGameLoop.js`).
 
 The loop executes every ~16.67ms and follows this order:
 
@@ -87,3 +94,40 @@ This order keeps world entities beneath overlays/HUD and ensures cinematic effec
 - Keep client side simple: consume snapshots and render.
 - Keep tunable gameplay data separated from loop logic.
 - Keep visual tone configuration separate from rendering mechanics.
+
+## Contributor Guide
+
+Use this section as the default placement guide when adding features.
+
+### Where New Server Code Goes
+
+- Add or tune constants in `serverConfig.js`.
+- Add room/phase derivation helpers in `serverRoundSystem.js`.
+- Add simulation tick ordering only in `serverGameLoop.js`.
+- Add hazard-specific behavior in a dedicated `server*System.js` file (example: curse logic in `serverCurseSystem.js`).
+- Add round start/end or round transition logic in `serverRoundLifecycleSystem.js`.
+- Add leaderboard, queue, or name presence logic in `serverLeaderboardPresenceSystem.js`.
+- Add socket endpoint routing and event registration in `serverSocketHandlers.js`.
+
+### Where New Client Code Goes
+
+- Add render tick orchestration in `clientRenderLoop.js`.
+- Add ambience preset mappings in `ambientPresets.js`.
+- Keep game state adaptation and DOM feature rendering in `game.js`.
+- Keep visual styling and animation behavior in `styles.css`.
+
+### Practical Rules
+
+- Prefer dependency injection for new modules instead of direct cross-file imports of mutable runtime state.
+- Keep server systems mostly stateless; room mutation should happen through explicit function inputs.
+- Keep socket handlers thin: validate input, then delegate to systems.
+- Keep each function focused on one responsibility and use action-first names (for example: `updateWind`, `checkForRoundEnd`, `drainWaitingQueueToLobby`).
+- When adding new timed gameplay behavior, document whether it runs in the server loop, a timeout, or a client render frame.
+
+### Naming Conventions
+
+- Use `*Ms` suffix for millisecond durations.
+- Use `*Multiplier` for scaling factors.
+- Use `update*` for per-tick state progression.
+- Use `check*` for predicates that may trigger transitions.
+- Use `create*System` for dependency-injected modules.
