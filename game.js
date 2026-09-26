@@ -42,6 +42,12 @@ let scoreBursts = [];
 let previousPlayerPoints = {};
 let bountyBanner = null;
 let lastRoundWinReason = null;
+let roundMutator = { id: "standard", name: "Classic Skies", description: "Balanced arena flow." };
+let lastRoundMutatorId = "standard";
+let arenaFeedItem = null;
+let cameraShakeUntil = 0;
+let cameraShakeStrength = 0;
+let windState = null;
 
 let curse = null;              // Current curse state from server (null | { state, x, y, targetId, carrierId })
 let lastCurseRattleTime = 0;  // Throttle rattle sound
@@ -452,8 +458,105 @@ function updateLocalState(data) {
     bountyBanner = { text: "BOUNTY CLEARED", startTime: Date.now() };
   }
   bounty = data.bounty || null;
+  if (data.roundMutator) {
+    roundMutator = data.roundMutator;
+  }
+  windState = data.wind || null;
   goldenTarget = data.goldenTarget || null;
   curse = data.curse !== undefined ? data.curse : null;
+
+  if (roundMutator && roundMutator.id !== lastRoundMutatorId) {
+    if (roundMutator.id !== "standard") {
+      pushArenaFeed("Round Twist: " + roundMutator.name, "mutator", 2200);
+    } else {
+      pushArenaFeed("Round Twist: Classic Skies", "mutator", 1800);
+    }
+    lastRoundMutatorId = roundMutator.id;
+  }
+}
+
+function pushArenaFeed(text, type, duration) {
+  arenaFeedItem = {
+    text,
+    type: type || "default",
+    startTime: Date.now(),
+    duration: duration || 1600
+  };
+}
+
+function drawArenaFeed() {
+  const el = document.getElementById("arenaEventFeed");
+  if (!el) return;
+  if (!arenaFeedItem) {
+    el.style.display = "none";
+    return;
+  }
+
+  const elapsed = Date.now() - arenaFeedItem.startTime;
+  if (elapsed >= arenaFeedItem.duration) {
+    arenaFeedItem = null;
+    el.style.display = "none";
+    return;
+  }
+
+  const fadeStart = arenaFeedItem.duration * 0.65;
+  const fade = elapsed > fadeStart ? 1 - ((elapsed - fadeStart) / (arenaFeedItem.duration - fadeStart)) : 1;
+  el.style.display = "block";
+  el.className = "arena-feed arena-feed-" + arenaFeedItem.type;
+  el.style.opacity = Math.max(0, Math.min(1, fade));
+  el.textContent = arenaFeedItem.text;
+}
+
+function drawRoundMutatorBadge() {
+  const el = document.getElementById("roundMutatorBadge");
+  if (!el || !roundMutator) return;
+  if (!gameRunning && !spectatingActive) {
+    el.style.display = "none";
+    return;
+  }
+
+  el.style.display = "block";
+  const desc = roundMutator.description ? "<span class='mutator-desc'>" + roundMutator.description + "</span>" : "";
+  el.innerHTML = "<span class='mutator-title'>" + roundMutator.name + "</span>" + desc;
+}
+
+function triggerCameraShake(strength, duration) {
+  cameraShakeStrength = Math.max(cameraShakeStrength, strength);
+  cameraShakeUntil = Math.max(cameraShakeUntil, Date.now() + duration);
+}
+
+function applyArenaCinematics() {
+  const gameArea = document.getElementById("gameArea");
+  const vignette = document.getElementById("dangerVignette");
+  if (!gameArea || !vignette) return;
+
+  const now = Date.now();
+  let shakeX = 0;
+  let shakeY = 0;
+  let windX = 0;
+  if (now < cameraShakeUntil) {
+    shakeX = (Math.random() * 2 - 1) * cameraShakeStrength;
+    shakeY = (Math.random() * 2 - 1) * cameraShakeStrength;
+    cameraShakeStrength = Math.max(0.8, cameraShakeStrength * 0.88);
+  } else {
+    cameraShakeStrength = 0;
+  }
+  if (windState && windState.active) {
+    windX = windState.direction * Math.min(3.5, 1.2 + (windState.strength || 0) * 30);
+  }
+
+  gameArea.style.transform = "translate(" + (shakeX + windX).toFixed(2) + "px," + shakeY.toFixed(2) + "px)";
+
+  const me = players.find(function (p) { return p.id === mySocketId; });
+  const health = me ? Math.max(0, Math.min(100, me.health || 0)) : 100;
+  let danger = (100 - health) / 100;
+  if (suddenDeath) danger = Math.max(danger, 0.35);
+  if (!me || !me.alive) danger = Math.min(danger, 0.3);
+  vignette.style.opacity = (danger * 0.85).toFixed(2);
+
+  gameArea.classList.toggle("phase-sudden", suddenDeath);
+  gameArea.classList.toggle("wind-left", Boolean(windState && windState.active && windState.direction < 0));
+  gameArea.classList.toggle("wind-right", Boolean(windState && windState.active && windState.direction > 0));
 }
 
 function drawPlayers() {
@@ -745,6 +848,10 @@ function drawScoreHud() {
       ? "<span class='hud-phase'>SURGE WINDOW " + roundTimeLeft + "s</span>"
       : "<span class='hud-phase'>BUILDING</span>";
 
+  const windLabel = windState && windState.active
+    ? "<span class='hud-wind'>WIND " + (windState.direction > 0 ? "→" : "←") + " " + (windState.timeLeft || 0) + "s</span>"
+    : "";
+
   const bountyLabel = bounty
     ? "<span class='hud-bounty'>WANTED: " + bounty.targetName + " +" + bounty.bonus + "</span>"
     : "";
@@ -770,9 +877,15 @@ function drawScoreHud() {
     if (localPlayer.clutchReady) {
       chargeLabel += "<span class='hud-charge hud-charge-live'>CLUTCH " + (localPlayer.clutchTimeLeft || 0) + "s</span>";
     }
+    if ((localPlayer.passCombo || 0) > 1) {
+      chargeLabel += "<span class='hud-charge hud-charge-live'>COMBO x" + localPlayer.passCombo + "</span>";
+    }
   }
 
   const ruleLabel = "<span class='hud-rule'>" + roundWinRule + "</span>";
+  const mutatorLabel = roundMutator
+    ? "<span class='hud-mutator'>" + roundMutator.name + "</span>"
+    : "";
 
   hud.innerHTML =
     "<div class='hud-scores'>" +
@@ -784,7 +897,7 @@ function drawScoreHud() {
         p.name + " C:" + (p.points || 0) + " <span class='hud-health'>HP:" + health + "%</span>" +
         "</span>";
     }).join("<span class='hud-sep'> · </span>") +
-    "</div><div class='hud-right'>" + bountyLabel + feverLabel + chargeLabel + ruleLabel + phaseLabel + speedLabel + "</div>";
+    "</div><div class='hud-right'>" + mutatorLabel + windLabel + bountyLabel + feverLabel + chargeLabel + ruleLabel + phaseLabel + speedLabel + "</div>";
 }
 
 function getRoundWinnerMessage(roundWinner, winReason) {
@@ -947,6 +1060,9 @@ function drawGame() {
   drawObstacles();
   drawCurse();
   drawScoreHud();
+  drawRoundMutatorBadge();
+  drawArenaFeed();
+  applyArenaCinematics();
   if (spectatingActive) {
     updateSpectatorOverlay();
   }
@@ -1260,8 +1376,11 @@ socket.on("roomUpdated", function (data) {
   scoreBursts = [];
   previousPlayerPoints = {};
   bountyBanner = null;
+  arenaFeedItem = null;
   previousPlayersState = {};
   isGhost = false;
+  cameraShakeUntil = 0;
+  cameraShakeStrength = 0;
   hideRoundCountdown();  // clear between-rounds timer
   if (autoRestartDisplayInterval) { clearInterval(autoRestartDisplayInterval); autoRestartDisplayInterval = null; }
 
@@ -1291,6 +1410,7 @@ socket.on("gameStarting", function (data) {
   scoreBursts = [];
   previousPlayerPoints = {};
   bountyBanner = null;
+  arenaFeedItem = null;
   previousPlayersState = {};
   curse = null;
   lastCurseRattleTime = 0;
@@ -1302,6 +1422,9 @@ socket.on("gameStarting", function (data) {
   updatePlayerList();
 
   document.getElementById("message").textContent = "Get ready...";
+  if (roundMutator && roundMutator.id !== "standard") {
+    pushArenaFeed("Round Twist: " + roundMutator.name, "mutator", 2800);
+  }
   startCountdown();
 });
 
@@ -1441,22 +1564,29 @@ socket.on("arenaCallout", function (data) {
 
   if (data.type === "fever") {
     SoundEngine.fever();
+    pushArenaFeed(data.text, "fever", 1700);
   } else {
     SoundEngine.announcer();
+    pushArenaFeed(data.text, data.type || "default", 1600);
   }
 });
 
 socket.on("battleHit", function () {
   SoundEngine.impact();
+  triggerCameraShake(3.5, 130);
 });
 
 socket.on("ramBoostHit", function () {
   SoundEngine.ramBoostHit();
+  triggerCameraShake(6, 170);
+  pushArenaFeed("RAM HIT!", "slam", 1000);
 });
 
 socket.on("shockwaveTriggered", function (data) {
   shockwaves.push({ x: data.x, y: data.y, startTime: Date.now() });
   SoundEngine.shockwavePickup();
+  triggerCameraShake(7.5, 240);
+  pushArenaFeed("SHOCKWAVE!", "power", 1200);
 });
 
 socket.on("shieldBlock", function () {
@@ -1465,18 +1595,35 @@ socket.on("shieldBlock", function () {
 
 socket.on("monsterActivated", function () {
   SoundEngine.monsterActivated();
+  triggerCameraShake(4, 220);
+  pushArenaFeed("MONSTER PIPE HUNT", "danger", 1600);
+});
+
+socket.on("windGustStarted", function (data) {
+  const dir = data && data.direction < 0 ? "LEFT" : "RIGHT";
+  SoundEngine.windGust();
+  pushArenaFeed("WIND GUST " + dir, "danger", 1400);
+});
+
+socket.on("windGustEnded", function () {
+  pushArenaFeed("WIND CALMS", "default", 900);
 });
 
 socket.on("curseSpawned", function () {
   SoundEngine.curseSpawn();
+  pushArenaFeed("CURSED BALL INBOUND", "danger", 1600);
 });
 
 socket.on("curseAttached", function () {
   SoundEngine.curseAttach();
+  triggerCameraShake(4.5, 150);
+  pushArenaFeed("CURSE ATTACHED", "danger", 1300);
 });
 
 socket.on("curseTransferred", function () {
   SoundEngine.curseTransfer();
+  triggerCameraShake(3.5, 120);
+  pushArenaFeed("CURSE TRANSFER", "danger", 1200);
 });
 
 socket.on("curseDespawned", function () {

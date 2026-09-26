@@ -280,6 +280,15 @@ const SoundEngine = (() => {
       metalRing(c, 520, 0.05, 0.18, t);
     },
 
+    windGust() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      noiseBurst(c, 0.18, 0.26, 900, t);
+      tone(c, "sine", 240, 0.08, 0.01, 0.24, t, 170);
+      tone(c, "triangle", 420, 0.05, 0.01, 0.20, t + 0.03, 280);
+    },
+
     // Fading hiss when the curse vanishes from play
     curseDespawn() {
       const c = getCtx();

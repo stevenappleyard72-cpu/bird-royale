@@ -29,6 +29,8 @@ const suddenDeathStartMs = roundDurationMs - suddenDeathLeadInMs;
 const obstaclePassBasePoints = 7;
 const obstaclePassComboBonusCap = 8;
 const obstaclePassSuddenDeathBonus = 3;
+const obstacleNearMissPoints = 2;
+const obstacleNearMissThreshold = 8;
 const survivalTickMs = 3500;
 const survivalTickPoints = 4;
 const roundWinnerBonusPoints = 12;
@@ -120,9 +122,83 @@ const monsterSpawnInterval = 7000;   // ms between monster spawns (from despawn 
 const monsterChaseSpeed = 0.45;      // vertical units per tick at 1x speed — slow but unnerving
 const monsterMinGap = 115;           // minimum gap the monster must preserve while tracking
 
+const windGustIntervalMs = 10500;
+const windGustDurationMs = 3300;
+const windGustForceMin = 0.035;
+const windGustForceMax = 0.075;
+
 const BOT_ID = "__bot__";
 const BOT_NAME = "Bot";
 const roundWinRule = "WIN: LAST BIRD STANDING";
+
+const roundMutators = {
+  standard: {
+    id: "standard",
+    name: "Classic Skies",
+    description: "Balanced arena flow.",
+    speedMult: 1,
+    gapTighten: 0,
+    collisionMult: 1,
+    pickupSpawnMult: 1,
+    goldenSpawnMult: 1,
+    curseSpawnMult: 1,
+    curseChaseMult: 1,
+    monsterChaseMult: 1
+  },
+  turbo: {
+    id: "turbo",
+    name: "Turbo Draft",
+    description: "Everything moves faster. Commit to lines.",
+    speedMult: 1.14,
+    gapTighten: 8,
+    collisionMult: 1.08,
+    pickupSpawnMult: 0.9,
+    goldenSpawnMult: 0.85,
+    curseSpawnMult: 0.85,
+    curseChaseMult: 1.1,
+    monsterChaseMult: 1.1
+  },
+  squeeze: {
+    id: "squeeze",
+    name: "Tight Squeeze",
+    description: "Narrow gaps, cleaner flight required.",
+    speedMult: 1.04,
+    gapTighten: 18,
+    collisionMult: 0.96,
+    pickupSpawnMult: 1,
+    goldenSpawnMult: 1,
+    curseSpawnMult: 1,
+    curseChaseMult: 1,
+    monsterChaseMult: 1.08
+  },
+  bruiser: {
+    id: "bruiser",
+    name: "Bumper Birds",
+    description: "Hits launch harder and steals matter more.",
+    speedMult: 1,
+    gapTighten: 0,
+    collisionMult: 1.3,
+    pickupSpawnMult: 0.92,
+    goldenSpawnMult: 0.95,
+    curseSpawnMult: 1,
+    curseChaseMult: 1,
+    monsterChaseMult: 1
+  },
+  treasure: {
+    id: "treasure",
+    name: "Treasure Storm",
+    description: "High-value targets appear more often.",
+    speedMult: 1,
+    gapTighten: 0,
+    collisionMult: 1,
+    pickupSpawnMult: 0.8,
+    goldenSpawnMult: 0.62,
+    curseSpawnMult: 1.08,
+    curseChaseMult: 0.96,
+    monsterChaseMult: 1
+  }
+};
+const rotatingMutatorPool = ["turbo", "squeeze", "bruiser", "treasure"];
 
 const pointPowerThresholds = [24, 52, 85];
 const pointPowerDurationMs = [3000, 4200, 5800];
@@ -283,7 +359,22 @@ function clampTargetScore(value) {
 
 function getSpeedMultiplier(room) {
   const base = (room.gameSpeed || 10) / 10;
-  return isSuddenDeath(room) ? base * 1.2 : base;
+  const mutator = roundMutators[(room && room.currentMutatorId) || "standard"] || roundMutators.standard;
+  const mutatorSpeed = mutator.speedMult || 1;
+  return isSuddenDeath(room) ? base * 1.2 * mutatorSpeed : base * mutatorSpeed;
+}
+
+function pickRoundMutator(room) {
+  if (!room) return "standard";
+  if (!room.roundCounter || room.roundCounter <= 1) return "standard";
+
+  const choices = rotatingMutatorPool.filter(id => id !== room.lastMutatorId);
+  const pool = choices.length > 0 ? choices : rotatingMutatorPool;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function getRoundMutator(room) {
+  return roundMutators[(room && room.currentMutatorId) || "standard"] || roundMutators.standard;
 }
 
 function getRoundStartTime(room) {
@@ -334,7 +425,9 @@ function createPlayerState(id, name, colour, x, y) {
     ghostVY: 0,
     ghostLastSpook: 0,
     passCombo: 0,
+    comboMilestoneHit: 0,
     scoredObstacleIds: {},
+    nearMissObstacleIds: {},
     lastDamageTime: 0,
     lastCollisionTime: 0,
     lastObstacleDamageTime: 0,
@@ -671,11 +764,14 @@ function updateBotAI(room) {
 function createObstacle(x, room) {
   // Gap narrows over time: maxCombined rises from 250 → 330 over 45 seconds
   let maxCombined = gameHeight / 2;
+  const mutator = getRoundMutator(room);
   if (room && room.roundStartTime) {
     const elapsed = (Date.now() - room.roundStartTime) / 1000;
     const t = Math.min(elapsed / 45, 1.0);
     maxCombined = (gameHeight / 2) + 80 * t;
   }
+  maxCombined -= (mutator.gapTighten || 0);
+  maxCombined = Math.max(190, maxCombined);
 
   let topHeight, bottomHeight;
   let attempts = 0;
@@ -717,6 +813,7 @@ function getGameState(roomCode) {
   const room = rooms[roomCode];
   const phase = getRoundPhase(room);
   const bounty = getBountyState(room);
+  const mutator = getRoundMutator(room);
 
   return {
     roomCode,
@@ -755,6 +852,17 @@ function getGameState(roomCode) {
     roundWinRule,
     suddenDeath: phase === "suddenDeath",
     bounty,
+    roundMutator: {
+      id: mutator.id,
+      name: mutator.name,
+      description: mutator.description
+    },
+    wind: room.wind && room.wind.active ? {
+      active: true,
+      direction: room.wind.direction,
+      strength: room.wind.strength,
+      timeLeft: Math.max(0, Math.ceil((room.wind.endAt - Date.now()) / 1000))
+    } : null,
     goldenTarget: room.goldenTarget || null,
     curse: room.curse ? {
       state:     room.curse.state,
@@ -810,7 +918,9 @@ function resetPlayersForRound(room) {
     players[i].ghostVY = 0;
     players[i].ghostLastSpook = 0;
     players[i].passCombo = 0;
+    players[i].comboMilestoneHit = 0;
     players[i].scoredObstacleIds = {};
+    players[i].nearMissObstacleIds = {};
     players[i].lastDamageTime = 0;
     players[i].lastCollisionTime = 0;
     players[i].lastObstacleDamageTime = 0;
@@ -896,10 +1006,41 @@ function applyInput(player, direction, room) {
   }
 }
 
+function updateWind(room, roomCode) {
+  const now = Date.now();
+  if (!room.wind) {
+    room.wind = { active: false, direction: 1, strength: 0, endAt: 0 };
+  }
+
+  if (room.wind.active && now >= room.wind.endAt) {
+    room.wind.active = false;
+    room.wind.strength = 0;
+    io.to(roomCode).emit("windGustEnded", {});
+  }
+
+  if (!room.wind.active) {
+    const mutator = getRoundMutator(room);
+    const interval = windGustIntervalMs * (mutator.speedMult > 1.08 ? 0.88 : 1);
+    if (now - (room.lastWindGustAt || 0) >= interval) {
+      room.wind.active = true;
+      room.wind.direction = Math.random() > 0.5 ? 1 : -1;
+      room.wind.strength = windGustForceMin + Math.random() * (windGustForceMax - windGustForceMin);
+      room.wind.endAt = now + windGustDurationMs;
+      room.lastWindGustAt = now;
+      io.to(roomCode).emit("windGustStarted", {
+        direction: room.wind.direction,
+        strength: room.wind.strength,
+        durationMs: windGustDurationMs
+      });
+    }
+  }
+}
+
 function updatePlayerPhysics(room) {
   const speedMultiplier = getSpeedMultiplier(room);
   const players = Object.values(room.players);
   const now = Date.now();
+  const wind = room.wind && room.wind.active ? room.wind : null;
 
   for (const player of players) {
     if (!player.alive) continue;
@@ -915,6 +1056,9 @@ function updatePlayerPhysics(room) {
     }
 
     player.x += player.velocityX * speedMultiplier;
+    if (wind) {
+      player.velocityX += wind.direction * wind.strength * speedMultiplier;
+    }
     player.velocityX *= horizontalDrag;
 
     if (!isSuddenDeath(room) && player.health < player.maxHealth && now - (player.lastDamageTime || 0) > playerHealthRegenDelay) {
@@ -927,6 +1071,7 @@ function updatePlayerPhysics(room) {
 
 function updateObstacles(room, roomCode) {
   const speedMultiplier = getSpeedMultiplier(room);
+  const comboMilestones = [3, 6, 9];
 
   for (const obstacle of room.obstacles) {
     obstacle.x -= obstacleSpeed * speedMultiplier;
@@ -936,6 +1081,30 @@ function updateObstacles(room, roomCode) {
   for (const obstacle of room.obstacles) {
     for (const player of alivePlayers) {
       if (!player.scoredObstacleIds) player.scoredObstacleIds = {};
+      if (!player.nearMissObstacleIds) player.nearMissObstacleIds = {};
+
+      if (!player.nearMissObstacleIds[obstacle.id]) {
+        const overlapX = player.x + birdSize > obstacle.x && player.x < obstacle.x + obstacle.width;
+        if (overlapX) {
+          const birdTop = player.y;
+          const birdBottom = player.y + birdSize;
+          const gapTop = obstacle.topHeight;
+          const gapBottom = gameHeight - obstacle.bottomHeight;
+          const insideGap = birdTop >= gapTop && birdBottom <= gapBottom;
+
+          if (insideGap) {
+            const topClearance = birdTop - gapTop;
+            const bottomClearance = gapBottom - birdBottom;
+            const minClearance = Math.min(topClearance, bottomClearance);
+
+            if (minClearance <= obstacleNearMissThreshold) {
+              awardPoints(player, obstacleNearMissPoints, room, roomCode);
+              player.nearMissObstacleIds[obstacle.id] = true;
+            }
+          }
+        }
+      }
+
       if (player.scoredObstacleIds[obstacle.id]) continue;
 
       if (obstacle.x + obstacle.width < player.x) {
@@ -945,6 +1114,12 @@ function updateObstacles(room, roomCode) {
           feverEligible: true
         });
         player.passCombo = (player.passCombo || 0) + 1;
+        for (const tier of comboMilestones) {
+          if ((player.passCombo || 0) >= tier && (player.comboMilestoneHit || 0) < tier) {
+            player.comboMilestoneHit = tier;
+            emitArenaCallout(roomCode, "power", player.name + " COMBO x" + tier + "!", player.id);
+          }
+        }
         player.scoredObstacleIds[obstacle.id] = true;
       }
     }
@@ -1114,6 +1289,8 @@ function applyObstacleDeaths(room, roomCode) {
 function applyPlayerCollisions(room, roomCode) {
   const players = Object.values(room.players).filter(player => player.alive);
   const now = Date.now();
+  const mutator = getRoundMutator(room);
+  const collisionMult = mutator.collisionMult || 1;
 
   for (let i = 0; i < players.length; i++) {
     for (let j = i + 1; j < players.length; j++) {
@@ -1174,10 +1351,10 @@ function applyPlayerCollisions(room, roomCode) {
         const attackerDiving = attacker.velocityY > 7;
         const attackerAbove  = (attacker.y + birdSize / 2) < (victim.y + birdSize / 2);
         if (attackerDiving && attackerAbove && !victimShielded) {
-          victim.x += directionX * victimKnockback * 1.25 * victimResistanceMult;
-          victim.y += directionY * victimKnockback * 1.25 * victimResistanceMult;
-          victim.velocityX += directionX * 7 * victimResistanceMult;
-          victim.velocityY += directionY * 7 * victimResistanceMult;
+          victim.x += directionX * victimKnockback * 1.25 * victimResistanceMult * collisionMult;
+          victim.y += directionY * victimKnockback * 1.25 * victimResistanceMult * collisionMult;
+          victim.velocityX += directionX * 7 * victimResistanceMult * collisionMult;
+          victim.velocityY += directionY * 7 * victimResistanceMult * collisionMult;
           keepPlayerInsideArena(victim);
           attacker.velocityY = flapStrength * 0.7;  // bounce attacker up
           const stolen = Math.min(victim.points || 0, pointSteal + 1);
@@ -1198,10 +1375,10 @@ function applyPlayerCollisions(room, roomCode) {
         if (!victimShielded) {
           const cursedVictimMult = (room.curse && room.curse.state === 'attached' && room.curse.carrierId === victim.id)
             ? (1 + curseKnockbackBonus) : 1;
-          victim.x += directionX * victimKnockback * knockbackMult * cursedVictimMult * victimResistanceMult;
-          victim.y += directionY * victimKnockback * knockbackMult * cursedVictimMult * victimResistanceMult;
-          victim.velocityX += directionX * 5 * knockbackMult * cursedVictimMult * victimResistanceMult;
-          victim.velocityY += directionY * 5 * knockbackMult * cursedVictimMult * victimResistanceMult;
+          victim.x += directionX * victimKnockback * knockbackMult * cursedVictimMult * victimResistanceMult * collisionMult;
+          victim.y += directionY * victimKnockback * knockbackMult * cursedVictimMult * victimResistanceMult * collisionMult;
+          victim.velocityX += directionX * 5 * knockbackMult * cursedVictimMult * victimResistanceMult * collisionMult;
+          victim.velocityY += directionY * 5 * knockbackMult * cursedVictimMult * victimResistanceMult * collisionMult;
           const stolen = Math.min(victim.points || 0, pointSteal);
           if (stolen > 0) {
             victim.points = Math.max(0, (victim.points || 0) - stolen);
@@ -1336,8 +1513,10 @@ function createGoldenTarget() {
 function updateGoldenTarget(room, roomCode) {
   const now = Date.now();
   const speedMultiplier = getSpeedMultiplier(room);
+  const mutator = getRoundMutator(room);
+  const goldenInterval = goldenTargetSpawnInterval * (mutator.goldenSpawnMult || 1);
 
-  if (!room.goldenTarget && now - (room.lastGoldenTargetSpawn || 0) >= goldenTargetSpawnInterval) {
+  if (!room.goldenTarget && now - (room.lastGoldenTargetSpawn || 0) >= goldenInterval) {
     room.goldenTarget = createGoldenTarget();
     room.lastGoldenTargetSpawn = now;
     emitArenaCallout(roomCode, "goldrush", "GOLD RUSH!", null);
@@ -1383,6 +1562,8 @@ function updateGoldenTarget(room, roomCode) {
 function updatePickups(room, roomCode) {
   const speedMultiplier = getSpeedMultiplier(room);
   const now = Date.now();
+  const mutator = getRoundMutator(room);
+  const pickupInterval = pickupSpawnInterval * (mutator.pickupSpawnMult || 1);
 
   for (const pickup of room.pickups) {
     pickup.x -= obstacleSpeed * speedMultiplier;
@@ -1452,7 +1633,7 @@ function updatePickups(room, roomCode) {
     }
   }
 
-  if (room.pickups.length < maxPickups && now - room.lastPickupSpawn > pickupSpawnInterval) {
+  if (room.pickups.length < maxPickups && now - room.lastPickupSpawn > pickupInterval) {
     const roll = Math.random();
     let nextPickup;
     if (roll < 0.25) {
@@ -1471,6 +1652,7 @@ function updatePickups(room, roomCode) {
 
 function updateMonster(room, roomCode) {
   const now = Date.now();
+  const mutator = getRoundMutator(room);
 
   // If the current monster has scrolled off screen, clear it and reset the cooldown
   const existingMonster = room.obstacles.find(o => o.isMonster);
@@ -1510,7 +1692,7 @@ function updateMonster(room, roomCode) {
   });
 
   const speedMultiplier = getSpeedMultiplier(room);
-  const step = monsterChaseSpeed * speedMultiplier;
+  const step = monsterChaseSpeed * speedMultiplier * (mutator.monsterChaseMult || 1);
 
   const playerCenterY = nearest.y + birdSize / 2;
   // Y coordinate of each pipe's threatening face (the edge that kills)
@@ -1575,6 +1757,9 @@ function curseBeamBlocked(cx, cy, tx, ty, obstacles) {
 function updateCurse(room, roomCode) {
   const now = Date.now();
   const speedMultiplier = getSpeedMultiplier(room);
+  const mutator = getRoundMutator(room);
+  const curseSpawnWindow = curseSpawnInterval * (mutator.curseSpawnMult || 1);
+  const curseChaseMult = mutator.curseChaseMult || 1;
 
   // ── Attached: follow carrier, detect death ─────────────────────────────────
   if (room.curse && room.curse.state === 'attached') {
@@ -1640,8 +1825,8 @@ function updateCurse(room, roomCode) {
     const dy   = targetCY - curseCY;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist > 1) {
-      room.curse.velocityX += (dx / dist) * curseChaseAcceleration * speedMultiplier;
-      room.curse.velocityY += (dy / dist) * curseChaseAcceleration * speedMultiplier;
+      room.curse.velocityX += (dx / dist) * curseChaseAcceleration * speedMultiplier * curseChaseMult;
+      room.curse.velocityY += (dy / dist) * curseChaseAcceleration * speedMultiplier * curseChaseMult;
     }
 
     // Cap speed
@@ -1691,7 +1876,7 @@ function updateCurse(room, roomCode) {
   }
 
   // ── No curse: check spawn cooldown ────────────────────────────────────────
-  if (!room.curse && now - room.lastCurseSpawn > curseSpawnInterval) {
+  if (!room.curse && now - room.lastCurseSpawn > curseSpawnWindow) {
     if (getAlivePlayers(room).length < 2) return;   // need 2+ players to be meaningful
     const spawnY = randomNumber(vineDepth + curseBallSize, gameHeight - grassDepth - curseBallSize * 2);
     room.curse = {
@@ -1877,6 +2062,9 @@ function startRoundForRoom(roomCode) {
 
   resetPlayersForRound(room);
   room.roundStartTime  = Date.now();       // set first so createObstacle can use it
+  room.roundCounter = (room.roundCounter || 0) + 1;
+  room.currentMutatorId = pickRoundMutator(room);
+  room.lastMutatorId = room.currentMutatorId;
   room.roundLiveStartTime = null;
   room.roundEndTime = room.roundStartTime + roundDurationMs;
   room.baseGameSpeed   = room.gameSpeed;   // snapshot for speed ramp
@@ -1887,8 +2075,15 @@ function startRoundForRoom(roomCode) {
   room.lastGoldenTargetSpawn = Date.now();
   room.lastPickupSpawn = 0;
   room.lastMonsterSpawn = Date.now();
+  room.wind = { active: false, direction: 1, strength: 0, endAt: 0 };
+  room.lastWindGustAt = Date.now();
   room.curse           = null;
   room.lastCurseSpawn  = Date.now();
+
+  const mutator = getRoundMutator(room);
+  if (room.currentMutatorId !== "standard") {
+    emitArenaCallout(roomCode, "power", "ROUND TWIST: " + mutator.name.toUpperCase(), null);
+  }
 
   io.to(roomCode).emit("gameStarting", getGameState(roomCode));
 
@@ -1921,6 +2116,7 @@ function startGameLoop(roomCode) {
     }
 
     updateSpeedRamp(activeRoom);
+    updateWind(activeRoom, roomCode);
     updatePlayerPhysics(activeRoom);
     updateBotAI(activeRoom);
     updateGhosts(activeRoom);
@@ -1966,7 +2162,12 @@ io.on("connection", (socket) => {
       lastCurseSpawn: 0,
       autoRestartTimer: null,
       baseGameSpeed: null,
-      roundStartTime: null
+      roundStartTime: null,
+      roundCounter: 0,
+      currentMutatorId: "standard",
+      lastMutatorId: null,
+      wind: { active: false, direction: 1, strength: 0, endAt: 0 },
+      lastWindGustAt: 0
     };
 
     addPlayerToRoom(socket, roomCode, nameCheck.name);
