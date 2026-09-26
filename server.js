@@ -29,7 +29,7 @@ const suddenDeathStartMs = roundDurationMs - suddenDeathLeadInMs;
 const obstaclePassBasePoints = 7;
 const obstaclePassComboBonusCap = 8;
 const obstaclePassSuddenDeathBonus = 3;
-const obstacleNearMissPoints = 2;
+const obstacleNearMissPoints = 1;
 const obstacleNearMissThreshold = 8;
 const survivalTickMs = 3500;
 const survivalTickPoints = 4;
@@ -118,14 +118,21 @@ const curseExtraGravity          = 0.10;  // extra gravity on carrier per tick
 const curseKnockbackBonus        = 0.30;  // 30 % more knockback received while cursed
 // ──────────────────────────────────────────────────────────────────────────
 
-const monsterSpawnInterval = 7000;   // ms between monster spawns (from despawn of last)
-const monsterChaseSpeed = 0.45;      // vertical units per tick at 1x speed — slow but unnerving
+const monsterSpawnInterval = 5200;   // ms between monster spawns (from despawn of last)
+const monsterChaseSpeed = 0.58;      // vertical units per tick at 1x speed — threatening but dodgeable
 const monsterMinGap = 115;           // minimum gap the monster must preserve while tracking
+const monsterPunchRange = 74;
+const monsterPunchCooldownMs = 850;
+const monsterPunchKnockback = 44;
+const monsterPunchDamage = 12;
+const monsterPunchVictimGraceMs = 950;
+const monsterArmReachMin = 26;
+const monsterArmReachMax = 92;
 
-const windGustIntervalMs = 10500;
-const windGustDurationMs = 3300;
-const windGustForceMin = 0.035;
-const windGustForceMax = 0.075;
+const windGustIntervalMs = 11000;
+const windGustDurationMs = 2800;
+const windGustForceMin = 0.028;
+const windGustForceMax = 0.058;
 
 const BOT_ID = "__bot__";
 const BOT_NAME = "Bot";
@@ -149,21 +156,21 @@ const roundMutators = {
     id: "turbo",
     name: "Turbo Draft",
     description: "Everything moves faster. Commit to lines.",
-    speedMult: 1.14,
+    speedMult: 1.1,
     gapTighten: 8,
-    collisionMult: 1.08,
+    collisionMult: 1.05,
     pickupSpawnMult: 0.9,
     goldenSpawnMult: 0.85,
     curseSpawnMult: 0.85,
-    curseChaseMult: 1.1,
-    monsterChaseMult: 1.1
+    curseChaseMult: 1.06,
+    monsterChaseMult: 1.08
   },
   squeeze: {
     id: "squeeze",
     name: "Tight Squeeze",
     description: "Narrow gaps, cleaner flight required.",
     speedMult: 1.04,
-    gapTighten: 18,
+    gapTighten: 14,
     collisionMult: 0.96,
     pickupSpawnMult: 1,
     goldenSpawnMult: 1,
@@ -177,7 +184,7 @@ const roundMutators = {
     description: "Hits launch harder and steals matter more.",
     speedMult: 1,
     gapTighten: 0,
-    collisionMult: 1.3,
+    collisionMult: 1.2,
     pickupSpawnMult: 0.92,
     goldenSpawnMult: 0.95,
     curseSpawnMult: 1,
@@ -192,7 +199,7 @@ const roundMutators = {
     gapTighten: 0,
     collisionMult: 1,
     pickupSpawnMult: 0.8,
-    goldenSpawnMult: 0.62,
+    goldenSpawnMult: 0.7,
     curseSpawnMult: 1.08,
     curseChaseMult: 0.96,
     monsterChaseMult: 1
@@ -424,6 +431,8 @@ function createPlayerState(id, name, colour, x, y) {
     ghostVX: 0,
     ghostVY: 0,
     ghostLastSpook: 0,
+    aliveTimeMs: 0,
+    lastMonsterPunchTime: 0,
     passCombo: 0,
     comboMilestoneHit: 0,
     scoredObstacleIds: {},
@@ -542,6 +551,79 @@ function getPointLeader(room) {
 
     return (b.passCombo || 0) - (a.passCombo || 0);
   })[0];
+}
+
+function ensureRoundStats(room, playerId) {
+  if (!room.roundStats) room.roundStats = {};
+  if (!room.roundStats[playerId]) {
+    room.roundStats[playerId] = {
+      nearMisses: 0,
+      comboPeak: 0,
+      hitsLanded: 0,
+      monsterJabsTaken: 0,
+      survivalMs: 0
+    };
+  }
+  return room.roundStats[playerId];
+}
+
+function buildRoundHighlights(room) {
+  const rows = Object.values(room.players || {}).map(player => {
+    const s = ensureRoundStats(room, player.id);
+    s.survivalMs = Math.max(s.survivalMs || 0, player.aliveTimeMs || 0);
+    return { playerId: player.id, name: player.name, stats: s };
+  });
+
+  const highlights = [];
+
+  function bestBy(field, minValue) {
+    const sorted = rows.slice().sort((a, b) => (b.stats[field] || 0) - (a.stats[field] || 0));
+    if (sorted.length === 0) return null;
+    if ((sorted[0].stats[field] || 0) < minValue) return null;
+    return sorted[0];
+  }
+
+  const comboTop = bestBy("comboPeak", 2);
+  if (comboTop) {
+    highlights.push({
+      icon: "🔥",
+      title: "Combo Crown",
+      playerName: comboTop.name,
+      value: "x" + comboTop.stats.comboPeak
+    });
+  }
+
+  const nearMissTop = bestBy("nearMisses", 1);
+  if (nearMissTop) {
+    highlights.push({
+      icon: "🪶",
+      title: "Threaded Needles",
+      playerName: nearMissTop.name,
+      value: nearMissTop.stats.nearMisses + " near misses"
+    });
+  }
+
+  const brawlerTop = bestBy("hitsLanded", 1);
+  if (brawlerTop) {
+    highlights.push({
+      icon: "🥊",
+      title: "Top Brawler",
+      playerName: brawlerTop.name,
+      value: brawlerTop.stats.hitsLanded + " hits"
+    });
+  }
+
+  const survivalTop = bestBy("survivalMs", 1);
+  if (survivalTop) {
+    highlights.push({
+      icon: "⏱",
+      title: "Longest Flight",
+      playerName: survivalTop.name,
+      value: Math.max(1, Math.round(survivalTop.stats.survivalMs / 1000)) + "s"
+    });
+  }
+
+  return highlights.slice(0, 3);
 }
 
 function getRoundWinner(room) {
@@ -793,7 +875,14 @@ function createObstacle(x, room) {
     width: obstacleWidth,
     topHeight,
     bottomHeight,
-    isMonster: false
+    isMonster: false,
+    topPunchStart: 0,
+    topPunchUntil: 0,
+    bottomPunchStart: 0,
+    bottomPunchUntil: 0,
+    topPunchReach: monsterArmReachMin,
+    bottomPunchReach: monsterArmReachMin,
+    lastMonsterPunchAt: 0
   };
 }
 
@@ -917,6 +1006,8 @@ function resetPlayersForRound(room) {
     players[i].ghostVX = 0;
     players[i].ghostVY = 0;
     players[i].ghostLastSpook = 0;
+    players[i].aliveTimeMs = 0;
+    players[i].lastMonsterPunchTime = 0;
     players[i].passCombo = 0;
     players[i].comboMilestoneHit = 0;
     players[i].scoredObstacleIds = {};
@@ -1045,6 +1136,8 @@ function updatePlayerPhysics(room) {
   for (const player of players) {
     if (!player.alive) continue;
 
+    player.aliveTimeMs = (player.aliveTimeMs || 0) + (1000 / 60);
+
     const extraGravity = (room.curse && room.curse.state === 'attached' && room.curse.carrierId === player.id)
       ? curseExtraGravity : 0;
     player.velocityY += (gravity + extraGravity) * speedMultiplier;
@@ -1100,6 +1193,7 @@ function updateObstacles(room, roomCode) {
             if (minClearance <= obstacleNearMissThreshold) {
               awardPoints(player, obstacleNearMissPoints, room, roomCode);
               player.nearMissObstacleIds[obstacle.id] = true;
+              ensureRoundStats(room, player.id).nearMisses += 1;
             }
           }
         }
@@ -1114,6 +1208,10 @@ function updateObstacles(room, roomCode) {
           feverEligible: true
         });
         player.passCombo = (player.passCombo || 0) + 1;
+        ensureRoundStats(room, player.id).comboPeak = Math.max(
+          ensureRoundStats(room, player.id).comboPeak,
+          player.passCombo || 0
+        );
         for (const tier of comboMilestones) {
           if ((player.passCombo || 0) >= tier && (player.comboMilestoneHit || 0) < tier) {
             player.comboMilestoneHit = tier;
@@ -1367,6 +1465,7 @@ function applyPlayerCollisions(room, roomCode) {
           }
           victim.lastHitByPlayerId = attacker.id;
           victim.lastHitByTime = now;
+          ensureRoundStats(room, attacker.id).hitsLanded += 1;
           io.to(roomCode).emit("battleHit", { attackerId: attacker.id, victimId: victim.id, kind: "stomp" });
           continue;
         }
@@ -1389,6 +1488,7 @@ function applyPlayerCollisions(room, roomCode) {
           }
           victim.lastHitByPlayerId = attacker.id;
           victim.lastHitByTime = now;
+          ensureRoundStats(room, attacker.id).hitsLanded += 1;
           keepPlayerInsideArena(victim);
         }
 
@@ -1671,6 +1771,13 @@ function updateMonster(room, roomCode) {
     if (candidates.length > 0) {
       const chosen = candidates[Math.floor(Math.random() * candidates.length)];
       chosen.isMonster = true;
+      chosen.topPunchStart = 0;
+      chosen.topPunchUntil = 0;
+      chosen.bottomPunchStart = 0;
+      chosen.bottomPunchUntil = 0;
+      chosen.topPunchReach = monsterArmReachMin;
+      chosen.bottomPunchReach = monsterArmReachMin;
+      chosen.lastMonsterPunchAt = 0;
       room.lastMonsterSpawn = now;
       io.to(roomCode).emit("monsterActivated");
     }
@@ -1692,7 +1799,9 @@ function updateMonster(room, roomCode) {
   });
 
   const speedMultiplier = getSpeedMultiplier(room);
-  const step = monsterChaseSpeed * speedMultiplier * (mutator.monsterChaseMult || 1);
+  const aliveCount = alivePlayers.length;
+  const pressureMult = aliveCount <= 2 ? 0.92 : aliveCount >= 5 ? 1.06 : 1;
+  const step = monsterChaseSpeed * speedMultiplier * (mutator.monsterChaseMult || 1) * pressureMult;
 
   const playerCenterY = nearest.y + birdSize / 2;
   // Y coordinate of each pipe's threatening face (the edge that kills)
@@ -1714,6 +1823,79 @@ function updateMonster(room, roomCode) {
     if (gameHeight - existingMonster.topHeight - newBottom >= monsterMinGap) {
       existingMonster.bottomHeight = newBottom;
     }
+  }
+
+  if (now - (existingMonster.lastMonsterPunchAt || 0) < monsterPunchCooldownMs) {
+    return;
+  }
+
+  for (const player of alivePlayers) {
+    if (now - (player.lastMonsterPunchTime || 0) < monsterPunchVictimGraceMs) continue;
+
+    const playerCenterX = player.x + birdSize / 2;
+    const playerCenterY = player.y + birdSize / 2;
+    const closeX = Math.abs(playerCenterX - monsterCenterX) <= (obstacleWidth / 2 + monsterPunchRange + 12);
+    if (!closeX) continue;
+
+    const topDist = Math.abs(playerCenterY - topFaceY);
+    const bottomDist = Math.abs(playerCenterY - bottomFaceY);
+    const punchFromTop = topDist <= bottomDist;
+    const faceY = punchFromTop ? topFaceY : bottomFaceY;
+    if (Math.abs(playerCenterY - faceY) > monsterPunchRange + 6) continue;
+
+    const shielded = player.shieldExpiry !== null && now < player.shieldExpiry;
+    const clutchReady = hasClutchImmunity(player, now);
+    let damageBlocked = false;
+
+    if (clutchReady && !shielded) {
+      player.clutchImmunityCharges = Math.max(0, (player.clutchImmunityCharges || 0) - 1);
+      player.clutchImmunityExpiry = 0;
+      io.to(roomCode).emit("shieldBlock", {});
+      damageBlocked = true;
+    }
+
+    if (shielded) {
+      io.to(roomCode).emit("shieldBlock", {});
+      damageBlocked = true;
+    }
+
+    const horizontalDir = playerCenterX >= monsterCenterX ? 1 : -1;
+    const strengthMult = damageBlocked ? 0.55 : 1;
+    player.velocityX += horizontalDir * monsterPunchKnockback * 0.56 * strengthMult;
+    player.velocityY += (punchFromTop ? 1 : -1) * monsterPunchKnockback * 0.4 * strengthMult;
+    keepPlayerInsideArena(player);
+
+    if (!damageBlocked) {
+      const punchDamage = isSuddenDeath(room) ? monsterPunchDamage + 2 : monsterPunchDamage;
+      dealDamage(player, punchDamage, room, now);
+      ensureRoundStats(room, player.id).monsterJabsTaken += 1;
+      player.lastObstacleDamageTime = now;
+    }
+
+    player.lastMonsterPunchTime = now;
+
+    existingMonster.lastMonsterPunchAt = now;
+    const reach = Math.max(
+      monsterArmReachMin,
+      Math.min(monsterArmReachMax, Math.round(Math.abs(playerCenterY - faceY) + 16))
+    );
+    if (punchFromTop) {
+      existingMonster.topPunchStart = now;
+      existingMonster.topPunchUntil = now + 260;
+      existingMonster.topPunchReach = reach;
+    } else {
+      existingMonster.bottomPunchStart = now;
+      existingMonster.bottomPunchUntil = now + 260;
+      existingMonster.bottomPunchReach = reach;
+    }
+
+    io.to(roomCode).emit("monsterPunch", {
+      playerId: player.id,
+      x: monsterCenterX,
+      y: faceY,
+      from: punchFromTop ? "top" : "bottom"
+    });
+    break;
   }
 }
 
@@ -1950,6 +2132,7 @@ function endRound(roomCode, winner) {
   }
 
   const matchWinner = resolvedWinner && resolvedWinner.score >= room.targetScore ? resolvedWinner : null;
+  const roundHighlights = buildRoundHighlights(room);
 
   // Track hourly leaderboard stats (bot excluded)
   if (resolvedWinner && resolvedWinner.id !== BOT_ID) {
@@ -1973,6 +2156,7 @@ function endRound(roomCode, winner) {
     roundWinner: resolvedWinner || null,
     winReason,
     roundWinRule,
+    roundHighlights,
     matchWinner,
     targetScore: room.targetScore,
     players: getPlayersInRoom(roomCode),
@@ -2067,6 +2251,7 @@ function startRoundForRoom(roomCode) {
   room.lastMutatorId = room.currentMutatorId;
   room.roundLiveStartTime = null;
   room.roundEndTime = room.roundStartTime + roundDurationMs;
+  room.roundStats = {};
   room.baseGameSpeed   = room.gameSpeed;   // snapshot for speed ramp
   room.obstacles       = createInitialObstacles(room);
   room.obstaclesPassed = 0;

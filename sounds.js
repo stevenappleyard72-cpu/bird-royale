@@ -289,6 +289,18 @@ const SoundEngine = (() => {
       tone(c, "triangle", 420, 0.05, 0.01, 0.20, t + 0.03, 280);
     },
 
+    // Plant monster punch: short whip crack + heavy glove thud
+    monsterPunch() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      noiseBurst(c, 0.16, 0.05, 2400, t);          // crack
+      tone(c, "square", 1500, 0.08, 0.001, 0.06, t, 600);
+      tone(c, "sine", 70, 0.34, 0.001, 0.24, t + 0.03, 34); // thud
+      tone(c, "sawtooth", 260, 0.14, 0.001, 0.16, t + 0.03, 70);
+      metalRing(c, 190, 0.08, 0.22, t + 0.02);
+    },
+
     // Fading hiss when the curse vanishes from play
     curseDespawn() {
       const c = getCtx();

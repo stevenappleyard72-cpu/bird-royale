@@ -48,6 +48,8 @@ let arenaFeedItem = null;
 let cameraShakeUntil = 0;
 let cameraShakeStrength = 0;
 let windState = null;
+let roundHighlights = [];
+let monsterPunchBursts = [];
 
 let curse = null;              // Current curse state from server (null | { state, x, y, targetId, carrierId })
 let lastCurseRattleTime = 0;  // Throttle rattle sound
@@ -677,6 +679,7 @@ function drawPlayers() {
   // Draw explosions and shockwaves
   drawExplosions();
   drawShockwaves();
+  drawMonsterPunchBursts(container);
   drawScoreBursts(container);
 
   // Update previous state
@@ -686,9 +689,68 @@ function drawPlayers() {
   }
 }
 
+function drawMonsterPunchBursts(container) {
+  const now = Date.now();
+  const duration = 380;
+
+  for (let i = monsterPunchBursts.length - 1; i >= 0; i--) {
+    const burst = monsterPunchBursts[i];
+    const progress = Math.min((now - burst.startTime) / duration, 1);
+    if (progress >= 1) {
+      monsterPunchBursts.splice(i, 1);
+      continue;
+    }
+
+    const el = document.createElement("div");
+    el.className = "monster-punch-burst";
+    el.textContent = "POW";
+    el.style.left = scaleX(burst.x) + "px";
+    el.style.top = scaleY(burst.y) - progress * 18 + "px";
+    el.style.opacity = 1 - progress;
+    container.appendChild(el);
+
+    const sparkCount = 6;
+    for (let s = 0; s < sparkCount; s++) {
+      const spark = document.createElement("div");
+      spark.className = "monster-punch-spark";
+      const angle = (Math.PI * 2 * s) / sparkCount + progress * 0.4;
+      const spread = 10 + progress * 18;
+      const sx = Math.cos(angle) * spread;
+      const sy = Math.sin(angle) * spread;
+      spark.style.left = scaleX(burst.x) + sx + "px";
+      spark.style.top = scaleY(burst.y) + sy + "px";
+      spark.style.opacity = 1 - progress;
+      spark.style.transform = "translate(-50%, -50%) rotate(" + Math.round((angle * 180) / Math.PI) + "deg) scaleX(" + (1.1 - progress * 0.4) + ")";
+      container.appendChild(spark);
+    }
+  }
+}
+
 function drawObstacles() {
   const container = document.getElementById("obstacleContainer");
   container.innerHTML = "";
+  const now = Date.now();
+
+  function getPunchMotion(start, end, restingScale) {
+    const rest = restingScale || 0.3;
+    if (!start || !end || now < start || now > end) {
+      return { armScale: rest, gloveScale: 1 };
+    }
+    const duration = Math.max(1, end - start);
+    const t = Math.max(0, Math.min((now - start) / duration, 1));
+
+    // 3-phase punch: wind-up, snap extension, recover.
+    if (t < 0.24) {
+      const k = t / 0.24;
+      return { armScale: rest - (rest - 0.12) * k, gloveScale: 1 - 0.08 * k };
+    }
+    if (t < 0.68) {
+      const k = (t - 0.24) / 0.44;
+      return { armScale: 0.12 + (1.14 - 0.12) * k, gloveScale: 0.92 + (1.2 - 0.92) * k };
+    }
+    const k = (t - 0.68) / 0.32;
+    return { armScale: 1.14 + (rest - 1.14) * k, gloveScale: 1.2 + (1 - 1.2) * k };
+  }
 
   for (let i = 0; i < obstacles.length; i++) {
     const obstacle = obstacles[i];
@@ -706,8 +768,12 @@ function drawObstacles() {
     const vineTip = document.createElement("div");
     vineTip.className = "obstacle-vine-tip";
 
+    const topBlossom = document.createElement("div");
+    topBlossom.className = "obstacle-blossom obstacle-blossom-top";
+
     topElement.appendChild(vineBody);
     topElement.appendChild(vineTip);
+    topElement.appendChild(topBlossom);
 
     // Bottom obstacle — bark trunk body with tree canopy cap
     const bottomElement = document.createElement("div");
@@ -722,8 +788,12 @@ function drawObstacles() {
     const treetop = document.createElement("div");
     treetop.className = "obstacle-treetop";
 
+    const bottomBlossom = document.createElement("div");
+    bottomBlossom.className = "obstacle-blossom obstacle-blossom-bottom";
+
     bottomElement.appendChild(trunk);
     bottomElement.appendChild(treetop);
+    bottomElement.appendChild(bottomBlossom);
 
     // Monster pipe — add glowing eyes on both segments
     if (obstacle.isMonster) {
@@ -737,6 +807,30 @@ function drawObstacles() {
       // Eyes on the top face of the bottom obstacle (staring up into the gap)
       const bottomEyes = createMonsterEyes(false);
       bottomElement.appendChild(bottomEyes);
+
+      const topMotion = getPunchMotion(obstacle.topPunchStart || 0, obstacle.topPunchUntil || 0, 0.3);
+
+      const topArm = document.createElement("div");
+      topArm.className = "monster-arm monster-arm-top";
+      topArm.style.setProperty("--arm-reach", Math.max(16, Math.round(scaleY(obstacle.topPunchReach || 26))) + "px");
+      topArm.style.setProperty("--arm-scale", topMotion.armScale.toFixed(3));
+      const topGlove = document.createElement("div");
+      topGlove.className = "monster-glove monster-glove-top";
+      topGlove.style.setProperty("--glove-scale", topMotion.gloveScale.toFixed(3));
+      topArm.appendChild(topGlove);
+      topElement.appendChild(topArm);
+
+      const bottomMotion = getPunchMotion(obstacle.bottomPunchStart || 0, obstacle.bottomPunchUntil || 0, 0.3);
+
+      const bottomArm = document.createElement("div");
+      bottomArm.className = "monster-arm monster-arm-bottom";
+      bottomArm.style.setProperty("--arm-reach", Math.max(16, Math.round(scaleY(obstacle.bottomPunchReach || 26))) + "px");
+      bottomArm.style.setProperty("--arm-scale", bottomMotion.armScale.toFixed(3));
+      const bottomGlove = document.createElement("div");
+      bottomGlove.className = "monster-glove monster-glove-bottom";
+      bottomGlove.style.setProperty("--glove-scale", bottomMotion.gloveScale.toFixed(3));
+      bottomArm.appendChild(bottomGlove);
+      bottomElement.appendChild(bottomArm);
     }
 
     container.appendChild(topElement);
@@ -1374,6 +1468,8 @@ socket.on("roomUpdated", function (data) {
   shockwaves = [];
   ghostSpooks = [];
   scoreBursts = [];
+  roundHighlights = [];
+  monsterPunchBursts = [];
   previousPlayerPoints = {};
   bountyBanner = null;
   arenaFeedItem = null;
@@ -1408,6 +1504,8 @@ socket.on("gameStarting", function (data) {
   shockwaves = [];
   ghostSpooks = [];
   scoreBursts = [];
+  roundHighlights = [];
+  monsterPunchBursts = [];
   previousPlayerPoints = {};
   bountyBanner = null;
   arenaFeedItem = null;
@@ -1456,6 +1554,7 @@ socket.on("roundEnded", function (data) {
   isGhost = false;  // round is over — no longer a ghost
   scoreBursts = [];
   previousPlayerPoints = {};
+  roundHighlights = data.roundHighlights || [];
 
   updateLocalState(data);
   lastRoundWinReason = data.winReason || null;
@@ -1599,6 +1698,15 @@ socket.on("monsterActivated", function () {
   pushArenaFeed("MONSTER PIPE HUNT", "danger", 1600);
 });
 
+socket.on("monsterPunch", function (data) {
+  SoundEngine.monsterPunch();
+  triggerCameraShake(4.2, 150);
+  pushArenaFeed("MONSTER PUNCH!", "danger", 1000);
+  if (data) {
+    monsterPunchBursts.push({ x: data.x, y: data.y, startTime: Date.now() });
+  }
+});
+
 socket.on("windGustStarted", function (data) {
   const dir = data && data.direction < 0 ? "LEFT" : "RIGHT";
   SoundEngine.windGust();
@@ -1640,10 +1748,21 @@ function showRoundCountdown(seconds, winnerName, winReason) {
   el.style.display = "flex";
   const numEl = document.getElementById("rcNumber");
   const subEl = document.getElementById("rcWinner");
+  const highlightsEl = document.getElementById("rcHighlights");
   if (numEl) numEl.textContent = seconds;
   if (subEl) {
     const winner = winnerName ? { name: winnerName } : null;
     subEl.textContent = getRoundWinnerMessage(winner, winReason) + " Last bird alive wins.";
+  }
+  if (highlightsEl) {
+    if (!roundHighlights || roundHighlights.length === 0) {
+      highlightsEl.innerHTML = "";
+      return;
+    }
+    highlightsEl.innerHTML = roundHighlights.map(function (h) {
+      return "<div class='rc-highlight-card'><div class='rc-highlight-title'>" + h.icon + " " + h.title +
+        "</div><div class='rc-highlight-player'>" + h.playerName + "</div><div class='rc-highlight-value'>" + h.value + "</div></div>";
+    }).join("");
   }
 }
 
@@ -1655,6 +1774,8 @@ function hideRoundCountdown() {
     clearInterval(autoRestartDisplayInterval);
     autoRestartDisplayInterval = null;
   }
+  const highlightsEl = document.getElementById("rcHighlights");
+  if (highlightsEl) highlightsEl.innerHTML = "";
 }
 
 socket.on("ghostSpook", function (data) {
