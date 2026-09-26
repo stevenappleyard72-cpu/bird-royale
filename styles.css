@@ -1097,9 +1097,60 @@ hr {
   top: -10px;
 }
 
+.monster-arm-big-windup {
+  filter:
+    drop-shadow(0 0 3px rgba(255, 78, 18, 0.8))
+    drop-shadow(0 0 10px rgba(255, 140, 40, 0.65));
+  animation: monsterWindupCharge 0.34s ease-in-out infinite;
+}
+
+.monster-arm-big-windup .monster-glove-sprite {
+  transform: translateX(-50%) scale(calc(var(--glove-scale, 1) * 1.14));
+  filter: saturate(1.18) brightness(1.14) drop-shadow(0 0 7px rgba(255, 110, 20, 0.78));
+}
+
+.monster-big-hit-cue {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 28px;
+  height: 22px;
+  line-height: 20px;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 900;
+  border-radius: 999px;
+  color: #fffdf2;
+  background: radial-gradient(circle at 50% 45%, rgba(255, 196, 86, 0.98), rgba(244, 83, 28, 0.96));
+  border: 1px solid rgba(89, 14, 0, 0.88);
+  box-shadow: 0 0 0 2px rgba(255, 236, 186, 0.46), 0 0 14px rgba(255, 99, 38, 0.72);
+  z-index: 13;
+  pointer-events: none;
+  animation: monsterBigCueBlink 0.2s steps(2, end) infinite;
+}
+
+.monster-big-hit-cue-top {
+  bottom: -28px;
+}
+
+.monster-big-hit-cue-bottom {
+  top: -28px;
+}
+
 @keyframes punchTrailFade {
   0% { opacity: 0.95; transform: translateX(-50%) scale(0.85); }
   100% { opacity: 0; transform: translateX(-50%) scale(1.25); }
+}
+
+@keyframes monsterWindupCharge {
+  0%   { transform: translateX(-50%) scaleY(calc(var(--arm-scale, 0.3) * 0.92)); }
+  50%  { transform: translateX(-50%) scaleY(calc(var(--arm-scale, 0.3) * 1.02)); }
+  100% { transform: translateX(-50%) scaleY(calc(var(--arm-scale, 0.3) * 0.9)); }
+}
+
+@keyframes monsterBigCueBlink {
+  0%   { opacity: 0.98; transform: translateX(-50%) scale(1); }
+  100% { opacity: 0.48; transform: translateX(-50%) scale(1.08); }
 }
 
 .monster-pupil {

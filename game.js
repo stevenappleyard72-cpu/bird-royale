@@ -852,9 +852,11 @@ function drawObstacles() {
 
       const topMotion = getPunchMotion(obstacle.topPunchStart || 0, obstacle.topPunchUntil || 0, 0.3);
       const monsterStyle = obstacle.monsterStyle || "classic";
+      const topBigWindupActive = (obstacle.topBigPunchWindupUntil || 0) > now;
+      const bottomBigWindupActive = (obstacle.bottomBigPunchWindupUntil || 0) > now;
 
       const topArm = document.createElement("div");
-      topArm.className = "monster-arm monster-arm-top monster-style-" + monsterStyle;
+      topArm.className = "monster-arm monster-arm-top monster-style-" + monsterStyle + (topBigWindupActive ? " monster-arm-big-windup" : "");
       topArm.style.setProperty("--arm-reach", Math.max(16, Math.round(scaleY(obstacle.topPunchReach || 26))) + "px");
       topArm.style.setProperty("--arm-scale", topMotion.armScale.toFixed(3));
 
@@ -872,12 +874,19 @@ function drawObstacles() {
         topTrail.className = "monster-punch-trail monster-punch-trail-top";
         topArm.appendChild(topTrail);
       }
+
+      if (topBigWindupActive) {
+        const topCue = document.createElement("div");
+        topCue.className = "monster-big-hit-cue monster-big-hit-cue-top";
+        topCue.textContent = "!!";
+        topArm.appendChild(topCue);
+      }
       topElement.appendChild(topArm);
 
       const bottomMotion = getPunchMotion(obstacle.bottomPunchStart || 0, obstacle.bottomPunchUntil || 0, 0.3);
 
       const bottomArm = document.createElement("div");
-      bottomArm.className = "monster-arm monster-arm-bottom monster-style-" + monsterStyle;
+      bottomArm.className = "monster-arm monster-arm-bottom monster-style-" + monsterStyle + (bottomBigWindupActive ? " monster-arm-big-windup" : "");
       bottomArm.style.setProperty("--arm-reach", Math.max(16, Math.round(scaleY(obstacle.bottomPunchReach || 26))) + "px");
       bottomArm.style.setProperty("--arm-scale", bottomMotion.armScale.toFixed(3));
 
@@ -894,6 +903,13 @@ function drawObstacles() {
         const bottomTrail = document.createElement("div");
         bottomTrail.className = "monster-punch-trail monster-punch-trail-bottom";
         bottomArm.appendChild(bottomTrail);
+      }
+
+      if (bottomBigWindupActive) {
+        const bottomCue = document.createElement("div");
+        bottomCue.className = "monster-big-hit-cue monster-big-hit-cue-bottom";
+        bottomCue.textContent = "!!";
+        bottomArm.appendChild(bottomCue);
       }
       bottomElement.appendChild(bottomArm);
     }
@@ -1785,10 +1801,27 @@ socket.on("monsterActivated", function () {
   pushArenaFeed("MONSTER PIPE HUNT", "danger", 1600);
 });
 
+socket.on("monsterBigHitWindup", function (data) {
+  SoundEngine.monsterBigHitCharge();
+  triggerCameraShake(2.8, 120);
+  pushArenaFeed("BIG HIT WINDUP!", "danger", 900);
+  if (data) {
+    monsterPunchBursts.push({ x: data.x, y: data.y, startTime: Date.now() });
+  }
+});
+
 socket.on("monsterPunch", function (data) {
-  SoundEngine.monsterPunch();
-  triggerCameraShake(4.2, 150);
-  pushArenaFeed("MONSTER PUNCH!", "danger", 1000);
+  const bigHit = Boolean(data && data.bigHit);
+  if (bigHit) {
+    SoundEngine.monsterBigPunch();
+    triggerCameraShake(6.8, 220);
+    pushArenaFeed("BIG MONSTER HIT!", "danger", 1150);
+  } else {
+    SoundEngine.monsterPunch();
+    triggerCameraShake(4.2, 150);
+    pushArenaFeed("MONSTER PUNCH!", "danger", 1000);
+  }
+  SoundEngine.birdOof(bigHit);
   if (data) {
     monsterPunchBursts.push({ x: data.x, y: data.y, startTime: Date.now() });
   }

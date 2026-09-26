@@ -107,10 +107,17 @@ const monsterMinGap = 115;
 const monsterPunchRange = 48;
 const monsterPunchDynamicMinRange = 18;
 const monsterPunchSafeCenterPadding = 22;
-const monsterPunchCooldownMs = 850;
-const monsterPunchKnockback = 44;
+const monsterPunchCooldownMs = 860;
+const monsterPlantHitCooldownMs = 1460;
+const monsterPlantBigHitCooldownMs = 2450;
+const monsterBigHitChance = 0.19;
+const monsterBigHitWindupMs = 540;
+const monsterBigHitDamageMultiplier = 1.78;
+const monsterBigHitKnockbackMultiplier = 1.52;
+const monsterBigHitMinIntervalMs = 5200;
+const monsterPunchKnockback = 43;
 const monsterPunchDamage = 12;
-const monsterPunchVictimGraceMs = 950;
+const monsterPunchVictimGraceMs = 1390;
 const monsterArmReachMin = 26;
 const monsterArmReachMax = 92;
 const monsterBoxingStyles = ["classic", "leafwrap", "thorn", "bark"];
@@ -298,6 +305,13 @@ module.exports = {
   monsterPunchDynamicMinRange,
   monsterPunchSafeCenterPadding,
   monsterPunchCooldownMs,
+  monsterPlantHitCooldownMs,
+  monsterPlantBigHitCooldownMs,
+  monsterBigHitChance,
+  monsterBigHitWindupMs,
+  monsterBigHitDamageMultiplier,
+  monsterBigHitKnockbackMultiplier,
+  monsterBigHitMinIntervalMs,
   monsterPunchKnockback,
   monsterPunchDamage,
   monsterPunchVictimGraceMs,

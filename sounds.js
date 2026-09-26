@@ -301,6 +301,41 @@ const SoundEngine = (() => {
       metalRing(c, 190, 0.08, 0.22, t + 0.02);
     },
 
+    // Telegraph for a heavy haymaker: tense charge and shimmer.
+    monsterBigHitCharge() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      tone(c, "sawtooth", 120, 0.12, 0.02, 0.55, t, 410);
+      tone(c, "triangle", 210, 0.08, 0.03, 0.48, t + 0.06, 720);
+      noiseBurst(c, 0.08, 0.24, 1400, t + 0.1);
+      metalRing(c, 260, 0.06, 0.3, t + 0.12);
+    },
+
+    // Big punch impact: chunkier low end and wider transient.
+    monsterBigPunch() {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      noiseBurst(c, 0.24, 0.08, 1800, t);
+      tone(c, "square", 1100, 0.11, 0.001, 0.09, t, 360);
+      tone(c, "sine", 58, 0.56, 0.001, 0.34, t + 0.02, 28);
+      tone(c, "sawtooth", 220, 0.2, 0.001, 0.22, t + 0.02, 55);
+      metalRing(c, 140, 0.14, 0.3, t + 0.01);
+    },
+
+    // Comedic bird cry when a plant lands a strike.
+    birdOof(isBigHit) {
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      const start = isBigHit ? 420 : 520;
+      const end = isBigHit ? 170 : 230;
+      tone(c, "square", start, 0.085, 0.002, 0.16, t, end);
+      tone(c, "triangle", start * 0.75, 0.055, 0.001, 0.2, t + 0.03, end * 0.62);
+      noiseBurst(c, isBigHit ? 0.07 : 0.05, 0.05, 1000, t + 0.01);
+    },
+
     // Fading hiss when the curse vanishes from play
     curseDespawn() {
       const c = getCtx();

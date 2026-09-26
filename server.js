@@ -107,6 +107,13 @@ const {
   monsterPunchDynamicMinRange,
   monsterPunchSafeCenterPadding,
   monsterPunchCooldownMs,
+  monsterPlantHitCooldownMs,
+  monsterPlantBigHitCooldownMs,
+  monsterBigHitChance,
+  monsterBigHitWindupMs,
+  monsterBigHitDamageMultiplier,
+  monsterBigHitKnockbackMultiplier,
+  monsterBigHitMinIntervalMs,
   monsterPunchKnockback,
   monsterPunchDamage,
   monsterPunchVictimGraceMs,
@@ -669,7 +676,17 @@ function createObstacle(x, room) {
     bottomPunchUntil: 0,
     topPunchReach: monsterArmReachMin,
     bottomPunchReach: monsterArmReachMin,
-    lastMonsterPunchAt: 0
+    lastMonsterPunchAt: 0,
+    topNextPunchAt: 0,
+    bottomNextPunchAt: 0,
+    topLastBigHitAt: 0,
+    bottomLastBigHitAt: 0,
+    topBigPunchWindupStart: 0,
+    topBigPunchWindupUntil: 0,
+    topBigPunchTargetId: null,
+    bottomBigPunchWindupStart: 0,
+    bottomBigPunchWindupUntil: 0,
+    bottomBigPunchTargetId: null
   };
 }
 
@@ -1573,6 +1590,16 @@ function updateMonster(room, roomCode) {
       chosen.topPunchReach = monsterArmReachMin;
       chosen.bottomPunchReach = monsterArmReachMin;
       chosen.lastMonsterPunchAt = 0;
+      chosen.topNextPunchAt = 0;
+      chosen.bottomNextPunchAt = 0;
+      chosen.topLastBigHitAt = 0;
+      chosen.bottomLastBigHitAt = 0;
+      chosen.topBigPunchWindupStart = 0;
+      chosen.topBigPunchWindupUntil = 0;
+      chosen.topBigPunchTargetId = null;
+      chosen.bottomBigPunchWindupStart = 0;
+      chosen.bottomBigPunchWindupUntil = 0;
+      chosen.bottomBigPunchTargetId = null;
       room.lastMonsterSpawn = now;
       io.to(roomCode).emit("monsterActivated");
     }
@@ -1620,30 +1647,47 @@ function updateMonster(room, roomCode) {
     }
   }
 
-  if (now - (existingMonster.lastMonsterPunchAt || 0) < monsterPunchCooldownMs) {
-    return;
+  const currentGapSize = Math.max(1, bottomFaceY - topFaceY);
+  const dynamicPunchRange = Math.min(
+    monsterPunchRange,
+    Math.max(monsterPunchDynamicMinRange, Math.round((currentGapSize - birdSize - monsterPunchSafeCenterPadding) / 2))
+  );
+  const closeXRange = obstacleWidth / 2 + monsterPunchRange + 12;
+
+  function selectVictimForSide(side, rangeBonus) {
+    let best = null;
+    const faceY = side === "top" ? topFaceY : bottomFaceY;
+
+    for (const player of alivePlayers) {
+      if (!player.alive) continue;
+      if (now - (player.lastMonsterPunchTime || 0) < monsterPunchVictimGraceMs) continue;
+
+      const playerCenterX = player.x + birdSize / 2;
+      const playerCenterY = player.y + birdSize / 2;
+      const dx = Math.abs(playerCenterX - monsterCenterX);
+      if (dx > closeXRange) continue;
+
+      const topDist = Math.abs(playerCenterY - topFaceY);
+      const bottomDist = Math.abs(playerCenterY - bottomFaceY);
+      if (side === "top" && topDist > bottomDist + 4) continue;
+      if (side === "bottom" && bottomDist > topDist + 4) continue;
+
+      const sideDist = Math.abs(playerCenterY - faceY);
+      if (sideDist > dynamicPunchRange + 6 + (rangeBonus || 0)) continue;
+
+      const score = sideDist * 1.35 + dx * 0.2;
+      if (!best || score < best.score) {
+        best = { player, playerCenterX, playerCenterY, faceY, sideDist, score };
+      }
+    }
+
+    return best;
   }
 
-  for (const player of alivePlayers) {
-    if (now - (player.lastMonsterPunchTime || 0) < monsterPunchVictimGraceMs) continue;
+  function performMonsterPunch(side, victimData, isBigHit) {
+    if (!victimData || !victimData.player || !victimData.player.alive) return false;
 
-    const playerCenterX = player.x + birdSize / 2;
-    const playerCenterY = player.y + birdSize / 2;
-    const closeX = Math.abs(playerCenterX - monsterCenterX) <= (obstacleWidth / 2 + monsterPunchRange + 12);
-    if (!closeX) continue;
-
-    const topDist = Math.abs(playerCenterY - topFaceY);
-    const bottomDist = Math.abs(playerCenterY - bottomFaceY);
-    const currentGapSize = Math.max(1, bottomFaceY - topFaceY);
-    // Keep a guaranteed middle route by shrinking punch reach when the gap is tight.
-    const dynamicPunchRange = Math.min(
-      monsterPunchRange,
-      Math.max(monsterPunchDynamicMinRange, Math.round((currentGapSize - birdSize - monsterPunchSafeCenterPadding) / 2))
-    );
-    const punchFromTop = topDist <= bottomDist;
-    const faceY = punchFromTop ? topFaceY : bottomFaceY;
-    if (Math.abs(playerCenterY - faceY) > dynamicPunchRange + 6) continue;
-
+    const player = victimData.player;
     const shielded = player.shieldExpiry !== null && now < player.shieldExpiry;
     const clutchReady = hasClutchImmunity(player, now);
     let damageBlocked = false;
@@ -1660,44 +1704,141 @@ function updateMonster(room, roomCode) {
       damageBlocked = true;
     }
 
-    const horizontalDir = playerCenterX >= monsterCenterX ? 1 : -1;
+    const hitKnockbackMult = isBigHit ? monsterBigHitKnockbackMultiplier : 1;
+    const horizontalDir = victimData.playerCenterX >= monsterCenterX ? 1 : -1;
     const strengthMult = damageBlocked ? 0.55 : 1;
-    player.velocityX += horizontalDir * monsterPunchKnockback * 0.56 * strengthMult;
-    player.velocityY += (punchFromTop ? 1 : -1) * monsterPunchKnockback * 0.4 * strengthMult;
+    player.velocityX += horizontalDir * monsterPunchKnockback * 0.56 * hitKnockbackMult * strengthMult;
+    player.velocityY += (side === "top" ? 1 : -1) * monsterPunchKnockback * 0.4 * hitKnockbackMult * strengthMult;
     keepPlayerInsideArena(player);
 
     if (!damageBlocked) {
-      const punchDamage = isSuddenDeath(room) ? monsterPunchDamage + 2 : monsterPunchDamage;
+      const baseDamage = isSuddenDeath(room) ? monsterPunchDamage + 2 : monsterPunchDamage;
+      const punchDamage = isBigHit ? Math.round(baseDamage * monsterBigHitDamageMultiplier) : baseDamage;
       dealDamage(player, punchDamage, room, now);
-      ensureRoundStats(room, player.id).monsterJabsTaken += 1;
+      ensureRoundStats(room, player.id).monsterJabsTaken += isBigHit ? 2 : 1;
       player.lastObstacleDamageTime = now;
     }
 
     player.lastMonsterPunchTime = now;
-
     existingMonster.lastMonsterPunchAt = now;
+
+    const reachPadding = isBigHit ? 26 : 16;
     const reach = Math.max(
       monsterArmReachMin,
-      Math.min(monsterArmReachMax, Math.round(Math.abs(playerCenterY - faceY) + 16))
+      Math.min(monsterArmReachMax, Math.round(Math.abs(victimData.playerCenterY - victimData.faceY) + reachPadding))
     );
-    if (punchFromTop) {
+
+    if (side === "top") {
       existingMonster.topPunchStart = now;
-      existingMonster.topPunchUntil = now + 260;
+      existingMonster.topPunchUntil = now + (isBigHit ? 340 : 260);
       existingMonster.topPunchReach = reach;
+      existingMonster.topBigPunchWindupStart = 0;
+      existingMonster.topBigPunchWindupUntil = 0;
+      existingMonster.topBigPunchTargetId = null;
+      existingMonster.topNextPunchAt = now + (isBigHit ? monsterPlantBigHitCooldownMs : monsterPlantHitCooldownMs);
+      if (isBigHit) existingMonster.topLastBigHitAt = now;
     } else {
       existingMonster.bottomPunchStart = now;
-      existingMonster.bottomPunchUntil = now + 260;
+      existingMonster.bottomPunchUntil = now + (isBigHit ? 340 : 260);
       existingMonster.bottomPunchReach = reach;
+      existingMonster.bottomBigPunchWindupStart = 0;
+      existingMonster.bottomBigPunchWindupUntil = 0;
+      existingMonster.bottomBigPunchTargetId = null;
+      existingMonster.bottomNextPunchAt = now + (isBigHit ? monsterPlantBigHitCooldownMs : monsterPlantHitCooldownMs);
+      if (isBigHit) existingMonster.bottomLastBigHitAt = now;
     }
 
     io.to(roomCode).emit("monsterPunch", {
       playerId: player.id,
       x: monsterCenterX,
-      y: faceY,
-      from: punchFromTop ? "top" : "bottom"
+      y: victimData.faceY,
+      from: side,
+      bigHit: Boolean(isBigHit)
     });
-    break;
+
+    return true;
   }
+
+  function resolveBigHitWindup(side) {
+    const startKey = side === "top" ? "topBigPunchWindupStart" : "bottomBigPunchWindupStart";
+    const untilKey = side === "top" ? "topBigPunchWindupUntil" : "bottomBigPunchWindupUntil";
+    const targetKey = side === "top" ? "topBigPunchTargetId" : "bottomBigPunchTargetId";
+    const nextKey = side === "top" ? "topNextPunchAt" : "bottomNextPunchAt";
+
+    const windupUntil = existingMonster[untilKey] || 0;
+    if (windupUntil <= 0 || now < windupUntil) return false;
+
+    const targetId = existingMonster[targetKey];
+    let selected = null;
+    if (targetId) {
+      const locked = alivePlayers.find(p => p.id === targetId);
+      if (locked) {
+        const lockData = selectVictimForSide(side, 8);
+        if (lockData && lockData.player.id === locked.id) {
+          selected = lockData;
+        }
+      }
+    }
+
+    if (!selected) {
+      selected = selectVictimForSide(side, 8);
+    }
+
+    const hitLanded = performMonsterPunch(side, selected, true);
+    if (!hitLanded) {
+      existingMonster[startKey] = 0;
+      existingMonster[untilKey] = 0;
+      existingMonster[targetKey] = null;
+      existingMonster[nextKey] = now + Math.max(850, monsterPunchCooldownMs);
+    }
+    return hitLanded;
+  }
+
+  function maybeStartOrApplyHit(side) {
+    const nextKey = side === "top" ? "topNextPunchAt" : "bottomNextPunchAt";
+    const startKey = side === "top" ? "topBigPunchWindupStart" : "bottomBigPunchWindupStart";
+    const untilKey = side === "top" ? "topBigPunchWindupUntil" : "bottomBigPunchWindupUntil";
+    const targetKey = side === "top" ? "topBigPunchTargetId" : "bottomBigPunchTargetId";
+    const bigLastKey = side === "top" ? "topLastBigHitAt" : "bottomLastBigHitAt";
+    const faceY = side === "top" ? topFaceY : bottomFaceY;
+
+    if ((existingMonster[untilKey] || 0) > 0) {
+      resolveBigHitWindup(side);
+      return;
+    }
+
+    if (now < (existingMonster[nextKey] || 0)) return;
+
+    const victimData = selectVictimForSide(side, 0);
+    if (!victimData) return;
+
+    const bigReadyByTime = now - (existingMonster[bigLastKey] || 0) >= monsterBigHitMinIntervalMs;
+    const canPrimeBigHit = bigReadyByTime && Math.random() < monsterBigHitChance;
+
+    if (canPrimeBigHit) {
+      existingMonster[startKey] = now;
+      existingMonster[untilKey] = now + monsterBigHitWindupMs;
+      existingMonster[targetKey] = victimData.player.id;
+      existingMonster[nextKey] = existingMonster[untilKey] + Math.max(200, Math.round(monsterPunchCooldownMs * 0.35));
+      if (side === "top") {
+        existingMonster.topPunchReach = Math.max(existingMonster.topPunchReach || monsterArmReachMin, monsterArmReachMin + 10);
+      } else {
+        existingMonster.bottomPunchReach = Math.max(existingMonster.bottomPunchReach || monsterArmReachMin, monsterArmReachMin + 10);
+      }
+      io.to(roomCode).emit("monsterBigHitWindup", {
+        from: side,
+        x: monsterCenterX,
+        y: faceY,
+        durationMs: monsterBigHitWindupMs
+      });
+      return;
+    }
+
+    performMonsterPunch(side, victimData, false);
+  }
+
+  maybeStartOrApplyHit("top");
+  maybeStartOrApplyHit("bottom");
 }
 
 const { updateCurse, checkCurseTransfer } = createCurseSystem({
