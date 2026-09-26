@@ -104,6 +104,8 @@ const {
   monsterChaseSpeed,
   monsterMinGap,
   monsterPunchRange,
+  monsterPunchDynamicMinRange,
+  monsterPunchSafeCenterPadding,
   monsterPunchCooldownMs,
   monsterPunchKnockback,
   monsterPunchDamage,
@@ -128,7 +130,9 @@ const {
   tier3ClutchImmunityMs,
   clutchKnockbackResistance,
   grassDepth,
-  vineDepth
+  vineDepth,
+  boundaryReleaseVelocity,
+  boundaryDiveBurstDamping
 } = require("./serverConfig");
 const leaderboardPresence = createLeaderboardPresenceSystem({
   fs,
@@ -813,6 +817,9 @@ function resetPlayersForRound(room) {
 }
 
 function keepPlayerInsideArena(player) {
+  const minY = vineDepth;
+  const maxY = gameHeight - birdSize - grassDepth;
+
   if (player.x < 0) {
     player.x = 0;
     player.velocityX = 0;
@@ -823,12 +830,16 @@ function keepPlayerInsideArena(player) {
     player.velocityX = 0;
   }
 
-  if (player.y < 0) {
-    player.y = 0;
+  if (player.y < minY) {
+    player.y = minY;
+    if (player.velocityY < 0) player.velocityY = boundaryReleaseVelocity;
+    if (player.diveBurst < 0) player.diveBurst *= boundaryDiveBurstDamping;
   }
 
-  if (player.y > gameHeight - birdSize) {
-    player.y = gameHeight - birdSize;
+  if (player.y > maxY) {
+    player.y = maxY;
+    if (player.velocityY > 0) player.velocityY = -boundaryReleaseVelocity;
+    if (player.diveBurst > 0) player.diveBurst *= boundaryDiveBurstDamping;
   }
 }
 
@@ -1623,9 +1634,15 @@ function updateMonster(room, roomCode) {
 
     const topDist = Math.abs(playerCenterY - topFaceY);
     const bottomDist = Math.abs(playerCenterY - bottomFaceY);
+    const currentGapSize = Math.max(1, bottomFaceY - topFaceY);
+    // Keep a guaranteed middle route by shrinking punch reach when the gap is tight.
+    const dynamicPunchRange = Math.min(
+      monsterPunchRange,
+      Math.max(monsterPunchDynamicMinRange, Math.round((currentGapSize - birdSize - monsterPunchSafeCenterPadding) / 2))
+    );
     const punchFromTop = topDist <= bottomDist;
     const faceY = punchFromTop ? topFaceY : bottomFaceY;
-    if (Math.abs(playerCenterY - faceY) > monsterPunchRange + 6) continue;
+    if (Math.abs(playerCenterY - faceY) > dynamicPunchRange + 6) continue;
 
     const shielded = player.shieldExpiry !== null && now < player.shieldExpiry;
     const clutchReady = hasClutchImmunity(player, now);

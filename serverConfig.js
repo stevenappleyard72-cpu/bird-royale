@@ -104,7 +104,9 @@ const curseKnockbackBonus = 0.3;
 const monsterSpawnInterval = 5200;
 const monsterChaseSpeed = 0.58;
 const monsterMinGap = 115;
-const monsterPunchRange = 74;
+const monsterPunchRange = 48;
+const monsterPunchDynamicMinRange = 18;
+const monsterPunchSafeCenterPadding = 22;
 const monsterPunchCooldownMs = 850;
 const monsterPunchKnockback = 44;
 const monsterPunchDamage = 12;
@@ -202,6 +204,8 @@ const clutchKnockbackResistance = 0.25;
 
 const grassDepth = 28;
 const vineDepth = 24;
+const boundaryReleaseVelocity = 0.9;
+const boundaryDiveBurstDamping = 0.18;
 
 module.exports = {
   playerColours,
@@ -291,6 +295,8 @@ module.exports = {
   monsterChaseSpeed,
   monsterMinGap,
   monsterPunchRange,
+  monsterPunchDynamicMinRange,
+  monsterPunchSafeCenterPadding,
   monsterPunchCooldownMs,
   monsterPunchKnockback,
   monsterPunchDamage,
@@ -315,5 +321,7 @@ module.exports = {
   tier3ClutchImmunityMs,
   clutchKnockbackResistance,
   grassDepth,
-  vineDepth
+  vineDepth,
+  boundaryReleaseVelocity,
+  boundaryDiveBurstDamping
 };
