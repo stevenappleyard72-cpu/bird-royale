@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 34">
+  <defs>
+    <radialGradient id="gThornD" cx="35%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#ffcdc5"/>
+      <stop offset="0.5" stop-color="#eb5a43"/>
+      <stop offset="1" stop-color="#78110b"/>
+    </radialGradient>
+  </defs>
+  <path d="M10,13 C11,6 18,3 25,3 C35,3 43,9 43,17 C43,25 35,31 25,31 C15,31 8,24 10,13 Z" fill="url(#gThornD)"/>
+  <path d="M14,12 L10,10 L12,15 Z M22,8 L19,5 L20,10 Z M31,9 L35,7 L33,12 Z M37,15 L41,14 L38,18 Z" fill="#ded99a"/>
+  <path d="M16,24 L13,28 M24,23 L22,27 M32,24 L35,28" stroke="#5e2e10" stroke-width="1.2"/>
+</svg>

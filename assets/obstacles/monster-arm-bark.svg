@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 26">
+  <defs>
+    <linearGradient id="stemBark" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6d3a1a"/>
+      <stop offset="0.5" stop-color="#93522a"/>
+      <stop offset="1" stop-color="#4a240e"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="0" width="8" height="26" rx="4" fill="url(#stemBark)"/>
+  <path d="M4,0 L4,26 M8,0 L8,26" stroke="#3e1f0b" stroke-width="0.9" opacity="0.75"/>
+  <path d="M3.6,6 L8.8,7 M3.4,13 L8.9,14 M3.8,20 L8.7,21" stroke="#c68f64" stroke-width="0.6" opacity="0.42"/>
+</svg>

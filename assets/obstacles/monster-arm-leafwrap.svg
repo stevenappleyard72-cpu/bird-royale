@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 26">
+  <defs>
+    <linearGradient id="stemLeaf" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1f4b22"/>
+      <stop offset="0.5" stop-color="#2f7a39"/>
+      <stop offset="1" stop-color="#1b3d1e"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="0" width="8" height="26" rx="4" fill="url(#stemLeaf)"/>
+  <path d="M5,3 L2,6 L5,9 L8,6 Z" fill="#8fdc7d" opacity="0.68"/>
+  <path d="M7,10 L4,13 L7,16 L10,13 Z" fill="#79c86a" opacity="0.66"/>
+  <path d="M5,17 L2,20 L5,23 L8,20 Z" fill="#93e184" opacity="0.68"/>
+</svg>

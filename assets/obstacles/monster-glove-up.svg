@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 34">
+  <defs>
+    <radialGradient id="gloveRedUp" cx="35%" cy="70%" r="80%">
+      <stop offset="0" stop-color="#ffb2a2"/>
+      <stop offset="0.48" stop-color="#f15a43"/>
+      <stop offset="1" stop-color="#8d160f"/>
+    </radialGradient>
+    <linearGradient id="cuffUp" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f2d8aa"/>
+      <stop offset="1" stop-color="#b98b51"/>
+    </linearGradient>
+  </defs>
+
+  <path d="M10,21 C11,28 18,31 25,31 C35,31 43,25 43,17 C43,9 35,3 25,3 C15,3 8,10 10,21 Z" fill="url(#gloveRedUp)"/>
+  <path d="M15,29 C22,33 33,32 39,26" stroke="#ffd2c3" stroke-width="2" opacity="0.55" fill="none"/>
+  <path d="M10,20 C8,20 6,19 5,17 C4,15 5,12 7,11 C9,10 11,11 12,13" fill="#b7261c"/>
+
+  <rect x="18" y="2" width="14" height="8" rx="2" fill="url(#cuffUp)"/>
+  <rect x="20" y="7" width="10" height="2" rx="1" fill="#866238" opacity="0.65"/>
+  <path d="M18,8 L32,8" stroke="#fff0cf" stroke-width="0.9" opacity="0.52"/>
+</svg>

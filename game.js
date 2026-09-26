@@ -439,6 +439,8 @@ function showGameArea() {
   document.getElementById("muteBar").style.display = "block";
 }
 
+// Applies an incoming server snapshot to the local client model.
+// This keeps all rendering functions pure-ish: they read from local state only.
 function updateLocalState(data) {
   currentGameCode = data.roomCode || currentGameCode;
   hostId = data.hostId || hostId;
@@ -527,6 +529,14 @@ function triggerCameraShake(strength, duration) {
   cameraShakeUntil = Math.max(cameraShakeUntil, Date.now() + duration);
 }
 
+function getAmbientPreset(mutatorId) {
+  if (window.BIRD_ROYALE_AMBIENCE && typeof window.BIRD_ROYALE_AMBIENCE.getAmbientPreset === "function") {
+    return window.BIRD_ROYALE_AMBIENCE.getAmbientPreset(mutatorId);
+  }
+  return { id: "standard", windMultiplier: 1, lifeBias: 0 };
+}
+
+// Applies camera shake, danger tint, and ambience variables once per draw tick.
 function applyArenaCinematics() {
   const gameArea = document.getElementById("gameArea");
   const vignette = document.getElementById("dangerVignette");
@@ -556,12 +566,29 @@ function applyArenaCinematics() {
   if (!me || !me.alive) danger = Math.min(danger, 0.3);
   vignette.style.opacity = (danger * 0.85).toFixed(2);
 
+  const pulse = (Math.sin(now * 0.0016) + 1) / 2;
+  const ambientPreset = getAmbientPreset(roundMutator && roundMutator.id);
+  gameArea.setAttribute("data-atmo", ambientPreset.id);
+
+  const ambientWind = windState && windState.active
+    ? windState.direction * Math.min(1.35, (0.25 + (windState.strength || 0) * 28) * (ambientPreset.windMultiplier || 1))
+    : Math.sin(now * 0.0006) * 0.08;
+  const baseLife = gameRunning ? 1 : (spectatingActive ? 0.9 : 0.74);
+  const styleLifeBoost = ambientPreset.lifeBias || 0;
+  const ambientLife = Math.max(0.38, Math.min(1.12, baseLife - danger * 0.24 + styleLifeBoost));
+
+  gameArea.style.setProperty("--ambient-wind", ambientWind.toFixed(3));
+  gameArea.style.setProperty("--ambient-danger", danger.toFixed(3));
+  gameArea.style.setProperty("--ambient-life", ambientLife.toFixed(3));
+  gameArea.style.setProperty("--ambient-pulse", pulse.toFixed(3));
+
   gameArea.classList.toggle("phase-sudden", suddenDeath);
   gameArea.classList.toggle("wind-left", Boolean(windState && windState.active && windState.direction < 0));
   gameArea.classList.toggle("wind-right", Boolean(windState && windState.active && windState.direction > 0));
 }
 
 function drawPlayers() {
+  // Rebuild the player layer each tick from authoritative positions/status.
   const container = document.getElementById("playersContainer");
   container.innerHTML = "";
 
@@ -727,6 +754,7 @@ function drawMonsterPunchBursts(container) {
 }
 
 function drawObstacles() {
+  // Rebuild obstacle layer from server obstacle states (including monster arms).
   const container = document.getElementById("obstacleContainer");
   container.innerHTML = "";
   const now = Date.now();
@@ -791,6 +819,20 @@ function drawObstacles() {
     const bottomBlossom = document.createElement("div");
     bottomBlossom.className = "obstacle-blossom obstacle-blossom-bottom";
 
+    const windLean = windState && windState.active
+      ? windState.direction * (0.55 + Math.min(1.5, (windState.strength || 0) * 16))
+      : 0;
+    const swaySeed = now * 0.0022 + obstacle.x * 0.058 + i * 0.47;
+    const vineSway = Math.sin(swaySeed) * 1.6 + windLean;
+    const canopySway = Math.sin(swaySeed + 1.3) * 1.9 + windLean * 0.82;
+    const topBloomScale = 0.95 + (Math.sin(swaySeed * 1.6 + 0.8) + 1) * 0.04;
+    const bottomBloomScale = 0.95 + (Math.sin(swaySeed * 1.5 + 2.4) + 1) * 0.045;
+
+    vineTip.style.transform = "translateX(" + vineSway.toFixed(2) + "px) rotate(" + (vineSway * 0.65).toFixed(2) + "deg)";
+    treetop.style.transform = "translateX(" + canopySway.toFixed(2) + "px) rotate(" + (canopySway * 0.5).toFixed(2) + "deg)";
+    topBlossom.style.transform = "translateX(" + (vineSway * 0.5).toFixed(2) + "px) scale(" + topBloomScale.toFixed(3) + ")";
+    bottomBlossom.style.transform = "translateX(" + (canopySway * 0.44).toFixed(2) + "px) scale(" + bottomBloomScale.toFixed(3) + ")";
+
     bottomElement.appendChild(trunk);
     bottomElement.appendChild(treetop);
     bottomElement.appendChild(bottomBlossom);
@@ -809,27 +851,50 @@ function drawObstacles() {
       bottomElement.appendChild(bottomEyes);
 
       const topMotion = getPunchMotion(obstacle.topPunchStart || 0, obstacle.topPunchUntil || 0, 0.3);
+      const monsterStyle = obstacle.monsterStyle || "classic";
 
       const topArm = document.createElement("div");
-      topArm.className = "monster-arm monster-arm-top";
+      topArm.className = "monster-arm monster-arm-top monster-style-" + monsterStyle;
       topArm.style.setProperty("--arm-reach", Math.max(16, Math.round(scaleY(obstacle.topPunchReach || 26))) + "px");
       topArm.style.setProperty("--arm-scale", topMotion.armScale.toFixed(3));
+
+      const topStem = document.createElement("div");
+      topStem.className = "monster-arm-stem";
+      topArm.appendChild(topStem);
+
       const topGlove = document.createElement("div");
-      topGlove.className = "monster-glove monster-glove-top";
+      topGlove.className = "monster-glove-sprite monster-glove-top-sprite";
       topGlove.style.setProperty("--glove-scale", topMotion.gloveScale.toFixed(3));
       topArm.appendChild(topGlove);
+
+      if ((obstacle.topPunchStart || 0) > 0 && now < (obstacle.topPunchUntil || 0)) {
+        const topTrail = document.createElement("div");
+        topTrail.className = "monster-punch-trail monster-punch-trail-top";
+        topArm.appendChild(topTrail);
+      }
       topElement.appendChild(topArm);
 
       const bottomMotion = getPunchMotion(obstacle.bottomPunchStart || 0, obstacle.bottomPunchUntil || 0, 0.3);
 
       const bottomArm = document.createElement("div");
-      bottomArm.className = "monster-arm monster-arm-bottom";
+      bottomArm.className = "monster-arm monster-arm-bottom monster-style-" + monsterStyle;
       bottomArm.style.setProperty("--arm-reach", Math.max(16, Math.round(scaleY(obstacle.bottomPunchReach || 26))) + "px");
       bottomArm.style.setProperty("--arm-scale", bottomMotion.armScale.toFixed(3));
+
+      const bottomStem = document.createElement("div");
+      bottomStem.className = "monster-arm-stem";
+      bottomArm.appendChild(bottomStem);
+
       const bottomGlove = document.createElement("div");
-      bottomGlove.className = "monster-glove monster-glove-bottom";
+      bottomGlove.className = "monster-glove-sprite monster-glove-bottom-sprite";
       bottomGlove.style.setProperty("--glove-scale", bottomMotion.gloveScale.toFixed(3));
       bottomArm.appendChild(bottomGlove);
+
+      if ((obstacle.bottomPunchStart || 0) > 0 && now < (obstacle.bottomPunchUntil || 0)) {
+        const bottomTrail = document.createElement("div");
+        bottomTrail.className = "monster-punch-trail monster-punch-trail-bottom";
+        bottomArm.appendChild(bottomTrail);
+      }
       bottomElement.appendChild(bottomArm);
     }
 
@@ -1148,6 +1213,9 @@ function drawCurse() {
 }
 
 function drawGame() {
+  // Client "game loop": we render whenever a fresh server state arrives.
+  // The server runs authoritative simulation at 60 Hz and emits snapshots,
+  // then the client maps that state to DOM and visual effects in this order.
   showGameArea();
   drawPlayers();
   drawPickups();
@@ -1542,6 +1610,7 @@ socket.on("gameStarted", function (data) {
 });
 
 socket.on("gameState", function (data) {
+  // Main render tick from server-authoritative loop.
   updateLocalState(data);
   drawGame();
   updatePlayerList();
