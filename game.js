@@ -98,6 +98,31 @@ let ghostSpooks = [];                // visual ghost spook effects [{x,y,startTi
 let autoRestartEndTime = null;       // timestamp when server will auto-restart
 let autoRestartDisplayInterval = null;
 
+function resetLocalSessionState() {
+  currentGameCode = "";
+  hostId = "";
+  gameWaitingToStart = false;
+  countdownRunning = false;
+  gameRunning = false;
+  matchEnded = false;
+  isGhost = false;
+  previousPlayerPoints = {};
+  bountyBanner = null;
+  arenaFeedItem = null;
+  players = [];
+  obstacles = [];
+  pickups = [];
+  spectatingActive = false;
+  spectatorJoining = false;
+  winnerSceneActive = false;
+  hideSpectatorOverlay();
+  hideRoundCountdown();
+  closeExitConfirm();
+  if (document.getElementById("winnerScene")) {
+    document.getElementById("winnerScene").remove();
+  }
+}
+
 const serverWidth = 420;
 const serverHeight = 500;
 const birdSize = 40;
@@ -105,6 +130,7 @@ const birdSize = 40;
 socket.on("connect", function () {
   mySocketId = socket.id;
   document.getElementById("version").textContent = "v" + APP_VERSION;
+  clearStaleAppShellState();
   socket.emit("requestLeaderboard");
 });
 
@@ -501,6 +527,13 @@ function showGameArea() {
 }
 
 function openExitConfirm() {
+  if (!currentGameCode) {
+    closeExitConfirm();
+    setAppScreen("home");
+    document.getElementById("message").textContent = "";
+    return;
+  }
+
   const modal = document.getElementById("exitConfirmModal");
   if (!modal) return;
   modal.hidden = false;
@@ -516,6 +549,7 @@ function closeExitConfirm() {
 
 function leaveCurrentGame() {
   if (!currentGameCode) {
+    resetLocalSessionState();
     setAppScreen("home");
     document.getElementById("message").textContent = "";
     return;
@@ -549,19 +583,9 @@ function leaveCurrentGame() {
 }
 
 socket.on("leftGame", function () {
-  currentGameCode = "";
+  resetLocalSessionState();
   setAppScreen("home");
   document.getElementById("message").textContent = "";
-  if (document.getElementById("winnerScene")) {
-    document.getElementById("winnerScene").remove();
-  }
-  hideSpectatorOverlay();
-  hideRoundCountdown();
-  gameWaitingToStart = false;
-  countdownRunning = false;
-  gameRunning = false;
-  matchEnded = false;
-  isGhost = false;
 });
 
 // Applies an incoming server snapshot to the local client model.
@@ -1614,6 +1638,18 @@ const leaveGameBtn = document.getElementById("leaveGameBtn");
 const exitConfirmModal = document.getElementById("exitConfirmModal");
 const exitConfirmCancel = document.querySelector(".exit-cancel-btn");
 const exitConfirmAction = document.querySelector(".exit-confirm-btn");
+
+function clearStaleAppShellState() {
+  closeExitConfirm();
+  resetLocalSessionState();
+  setAppScreen("home");
+  const messageEl = document.getElementById("message");
+  if (messageEl) {
+    messageEl.textContent = "";
+  }
+}
+
+clearStaleAppShellState();
 
 gameAreaElement.addEventListener("pointerdown", handleGameAreaPointerDown);
 gameAreaElement.addEventListener("pointerup", handleGameAreaPointerUp);
