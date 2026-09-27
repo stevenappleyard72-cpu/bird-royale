@@ -1,4 +1,4 @@
-const CACHE_NAME = "bird-royale-v2";
+const CACHE_NAME = "bird-royale-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -12,7 +12,11 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(ASSETS))
+      .catch(() => undefined)
+  );
   self.skipWaiting();
 });
 
@@ -30,14 +34,25 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
+  const url = new URL(event.request.url);
+  const isAppAsset = [
+    "/", "/index.html", "/styles.css", "/game.js", "/sounds.js", "/ambientPresets.js",
+    "/clientRenderLoop.js", "/manifest.webmanifest", "/assets/icon.svg"
+  ].includes(url.pathname) || url.pathname.endsWith(".js") || url.pathname.endsWith(".css") || url.pathname.endsWith(".html");
+
+  if (!isAppAsset && url.origin === self.location.origin) {
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(() => undefined);
+        }
         return response;
-      }).catch(() => cached);
-    })
+      })
+      .catch(() => caches.match(event.request).then((cached) => cached || Response.error()))
   );
 });
