@@ -117,7 +117,12 @@ function resetLocalSessionState() {
   winnerSceneActive = false;
   hideSpectatorOverlay();
   hideRoundCountdown();
-  closeExitConfirm();
+  const modal = document.getElementById("exitConfirmModal");
+  if (modal) {
+    modal.hidden = true;
+    modal.style.display = "none";
+    modal.setAttribute("aria-hidden", "true");
+  }
   if (document.getElementById("winnerScene")) {
     document.getElementById("winnerScene").remove();
   }
@@ -537,6 +542,7 @@ function openExitConfirm() {
   const modal = document.getElementById("exitConfirmModal");
   if (!modal) return;
   modal.hidden = false;
+  modal.style.display = "grid";
   modal.setAttribute("aria-hidden", "false");
 }
 
@@ -544,6 +550,7 @@ function closeExitConfirm() {
   const modal = document.getElementById("exitConfirmModal");
   if (!modal) return;
   modal.hidden = true;
+  modal.style.display = "none";
   modal.setAttribute("aria-hidden", "true");
 }
 
@@ -1640,7 +1647,13 @@ const exitConfirmCancel = document.querySelector(".exit-cancel-btn");
 const exitConfirmAction = document.querySelector(".exit-confirm-btn");
 
 function clearStaleAppShellState() {
-  closeExitConfirm();
+  const modal = document.getElementById("exitConfirmModal");
+  if (modal) {
+    modal.hidden = true;
+    modal.style.display = "none";
+    modal.setAttribute("aria-hidden", "true");
+  }
+
   resetLocalSessionState();
   setAppScreen("home");
   const messageEl = document.getElementById("message");
@@ -1650,6 +1663,11 @@ function clearStaleAppShellState() {
 }
 
 clearStaleAppShellState();
+window.addEventListener("pageshow", function (event) {
+  if (event.persisted) {
+    clearStaleAppShellState();
+  }
+});
 
 gameAreaElement.addEventListener("pointerdown", handleGameAreaPointerDown);
 gameAreaElement.addEventListener("pointerup", handleGameAreaPointerUp);
