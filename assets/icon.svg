@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Bird Royale premium app icon">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#8EC8FF"/>
+      <stop offset="35%" stop-color="#5FAAF5"/>
+      <stop offset="100%" stop-color="#2D5DBA"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#FFF1A8"/>
+      <stop offset="100%" stop-color="#F7B91E"/>
+    </linearGradient>
+    <linearGradient id="wing" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%" stop-color="#FFF7D7"/>
+      <stop offset="100%" stop-color="#F9D76E"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="256" height="256" rx="54" fill="url(#bg)"/>
+  <circle cx="196" cy="62" r="37" fill="rgba(255,231,148,0.9)"/>
+  <path d="M36 161c32-44 76-63 128-58 31 3 51 12 70 27-10 40-41 77-85 98-55 25-112 13-145-33 11-13 21-25 32-34z" fill="rgba(255,255,255,0.18)"/>
+
+  <path d="M62 148c26-36 57-52 92-56 34-4 62 4 92 31-16 9-39 24-62 40-25 17-51 30-79 36-17-11-28-24-43-51z" fill="url(#gold)"/>
+  <path d="M85 115c23 10 39 12 56 8 21-5 43-21 62-38 12 12 13 31 3 46-23 29-57 45-94 43-13-1-22-6-32-16 3-14 4-29 5-43z" fill="url(#wing)"/>
+
+  <path d="M123 113c14 18 27 27 46 27 13 0 26-5 38-15-8 21-19 36-36 47-13 8-28 12-42 12-16 0-31-6-44-16 10-18 20-33 38-55z" fill="#F5E6A8" opacity="0.96"/>
+
+  <circle cx="110" cy="121" r="7" fill="#1F2430"/>
+  <circle cx="154" cy="121" r="7" fill="#1F2430"/>
+  <circle cx="108" cy="117" r="2.8" fill="#fff"/>
+  <circle cx="152" cy="117" r="2.8" fill="#fff"/>
+  <path d="M116 138c11 7 21 9 31 7" fill="none" stroke="#2A2E38" stroke-width="6" stroke-linecap="round"/>
+
+  <circle cx="175" cy="84" r="14" fill="#FCE39A"/>
+  <path d="M168 84l7-12 10 12 11-12 8 12" fill="none" stroke="#F7B91E" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <path d="M58 188c35 24 77 35 118 30" fill="none" stroke="rgba(255,255,255,0.32)" stroke-width="8" stroke-linecap="round"/>
+</svg>

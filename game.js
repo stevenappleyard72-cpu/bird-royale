@@ -1,6 +1,41 @@
 const socket = io();
 
 const APP_VERSION = "1.0.0";
+let deferredInstallPrompt = null;
+
+document.body.dataset.screen = "home";
+
+const installBtn = document.getElementById("installBtn");
+
+window.addEventListener("beforeinstallprompt", function (event) {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  if (installBtn) {
+    installBtn.hidden = false;
+    installBtn.classList.add("is-ready");
+  }
+});
+
+if (installBtn) {
+  installBtn.addEventListener("click", async function () {
+    if (!deferredInstallPrompt) {
+      return;
+    }
+
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    installBtn.hidden = true;
+  });
+}
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("./sw.js").catch(function () {
+      // Service worker registration is optional for local or restricted environments.
+    });
+  });
+}
 
 let currentGameCode = "";
 let hostId = "";
@@ -150,13 +185,11 @@ function createConfetti() {
 }
 
 function showWinnerScene(winner) {
-  // Track stats
   if (!playerStats[winner.id]) {
     playerStats[winner.id] = { wins: 0, matches: 0 };
   }
   playerStats[winner.id].wins++;
 
-  // Count total matches for all players
   for (const player of players) {
     if (!playerStats[player.id]) {
       playerStats[player.id] = { wins: 0, matches: 0 };
@@ -166,72 +199,102 @@ function showWinnerScene(winner) {
 
   const losses = playerStats[winner.id].matches - playerStats[winner.id].wins;
 
-  // Create winner scene
   const winnerScene = document.createElement("div");
   winnerScene.id = "winnerScene";
+  winnerScene.className = "winner-scene";
 
-  // Darken arena
-  const darkOverlay = document.createElement("div");
-  darkOverlay.className = "winner-overlay";
-  winnerScene.appendChild(darkOverlay);
+  const overlay = document.createElement("div");
+  overlay.className = "winner-overlay";
+  winnerScene.appendChild(overlay);
 
-  // Winner bird (enlarged, centered)
-  const winnerBird = document.createElement("div");
-  winnerBird.className = "winner-bird";
-  winnerBird.style.background = winner.colour;
-  winnerBird.textContent = "👑";
-  winnerScene.appendChild(winnerBird);
+  const summaryCard = document.createElement("div");
+  summaryCard.className = "winner-summary-card";
 
-  // Other birds arranged around winner
-  const otherPlayers = players.filter(p => p.id !== winner.id);
-  const angleStep = (2 * Math.PI) / Math.max(otherPlayers.length, 1);
+  const title = document.createElement("div");
+  title.className = "winner-summary-kicker";
+  title.textContent = "MATCH SUMMARY";
+  summaryCard.appendChild(title);
 
-  otherPlayers.forEach((player, index) => {
-    const angle = angleStep * index;
-    const distance = 150;
-    const x = 50 + (Math.cos(angle) * distance / 420) * 100;
-    const y = 50 + (Math.sin(angle) * distance / 500) * 100;
+  const crownWrap = document.createElement("div");
+  crownWrap.className = "winner-summary-crown-wrap";
+  crownWrap.innerHTML = "👑";
+  summaryCard.appendChild(crownWrap);
 
-    const bird = document.createElement("div");
-    bird.className = "podium-bird";
-    bird.style.background = player.colour;
-    bird.style.left = x + "%";
-    bird.style.top = y + "%";
-    bird.style.animationDelay = index * 0.1 + "s";
-    winnerScene.appendChild(bird);
+  const winnerName = document.createElement("div");
+  winnerName.className = "winner-summary-winner";
+  winnerName.textContent = winner.name;
+  summaryCard.appendChild(winnerName);
+
+  const statRow = document.createElement("div");
+  statRow.className = "winner-summary-stats";
+  statRow.innerHTML = "<span>" + playerStats[winner.id].wins + " wins</span><span>" + losses + " losses</span>";
+  summaryCard.appendChild(statRow);
+
+  const leaderboardMini = document.createElement("div");
+  leaderboardMini.className = "winner-summary-list";
+
+  const orderedPlayers = [...players].sort((a, b) => (b.score || 0) - (a.score || 0));
+  orderedPlayers.forEach((player, index) => {
+    const row = document.createElement("div");
+    row.className = "winner-summary-player" + (player.id === winner.id ? " is-winner" : "");
+    row.innerHTML = "<span class='winner-summary-rank'>#" + (index + 1) + "</span>" +
+      "<span class='winner-summary-name' style='color:" + (player.colour || "#fff") + "'>" + player.name + "</span>" +
+      "<span class='winner-summary-score'>" + (player.score || 0) + "</span>";
+    leaderboardMini.appendChild(row);
   });
 
-  // Crown emoji
-  const crown = document.createElement("div");
-  crown.className = "crown";
-  crown.textContent = "👑";
-  winnerScene.appendChild(crown);
+  summaryCard.appendChild(leaderboardMini);
 
-  // Champion text
-  const text = document.createElement("div");
-  text.className = "winner-text";
-  text.innerHTML = "BIRD ROYALE<br>CHAMPION<br><br>" + winner.name + "<br><br>" +
-    playerStats[winner.id].wins + " wins - " + losses + " losses";
-  winnerScene.appendChild(text);
+  const actionRow = document.createElement("div");
+  actionRow.className = "winner-summary-actions";
 
-  // Start message
-  const startMsg = document.createElement("div");
-  startMsg.className = "start-message";
-  startMsg.textContent = "Press SPACE to start a new match";
-  winnerScene.appendChild(startMsg);
+  const lobbyBtn = document.createElement("button");
+  lobbyBtn.className = "winner-summary-button secondary";
+  lobbyBtn.textContent = "Return to Lobby";
+  lobbyBtn.onclick = function () {
+    hideWinnerScene();
+  };
 
-  // Rematch button (only for host)
-  if (mySocketId === hostId) {
-    const rematchBtn = document.createElement("button");
-    rematchBtn.id = "rematchBtn";
-    rematchBtn.textContent = "Rematch";
-    rematchBtn.onclick = function () { requestRematch(); };
-    winnerScene.appendChild(rematchBtn);
-  }
+  const matchBtn = document.createElement("button");
+  matchBtn.className = "winner-summary-button primary";
+  matchBtn.textContent = mySocketId === hostId ? "Rematch" : "Press SPACE";
+  matchBtn.onclick = function () {
+    if (mySocketId === hostId) {
+      requestRematch();
+    } else {
+      hideWinnerScene();
+    }
+  };
+
+  actionRow.appendChild(lobbyBtn);
+  actionRow.appendChild(matchBtn);
+  summaryCard.appendChild(actionRow);
+
+  winnerScene.appendChild(summaryCard);
 
   document.getElementById("gameArea").appendChild(winnerScene);
   createConfetti();
   winnerSceneActive = true;
+  setAppScreen("summary");
+}
+
+function setAppScreen(screenName) {
+  const validScreens = ["home", "game", "summary"];
+  if (!validScreens.includes(screenName)) {
+    screenName = "home";
+  }
+
+  document.body.dataset.screen = screenName;
+
+  const lobby = document.getElementById("lobby");
+  const gameArea = document.getElementById("gameArea");
+  const muteBar = document.getElementById("muteBar");
+  const leaderboard = document.getElementById("leaderboardPanel");
+
+  if (lobby) lobby.style.display = screenName === "home" ? "flex" : "none";
+  if (gameArea) gameArea.style.display = screenName === "home" ? "none" : "block";
+  if (muteBar) muteBar.style.display = screenName === "home" ? "none" : "block";
+  if (leaderboard) leaderboard.style.display = screenName === "home" ? "flex" : "none";
 }
 
 function hideWinnerScene() {
@@ -241,10 +304,7 @@ function hideWinnerScene() {
   }
   winnerSceneActive = false;
 
-  // Return to lobby
-  document.getElementById("lobby").style.display = "block";
-  document.getElementById("gameArea").style.display = "none";
-  document.getElementById("muteBar").style.display = "none";
+  setAppScreen("home");
   document.getElementById("message").textContent = "";
 }
 
@@ -408,6 +468,7 @@ function createGame() {
 
   setGameSpeed(getSpeedFromInput());
   targetScore = getTargetScoreFromInput();
+  setAppScreen("game");
 
   socket.emit("createGame", {
     playerName,
@@ -427,6 +488,7 @@ function joinGame() {
   }
 
   currentGameCode = code;
+  setAppScreen("game");
 
   socket.emit("joinGame", {
     playerName,
@@ -435,9 +497,72 @@ function joinGame() {
 }
 
 function showGameArea() {
-  document.getElementById("gameArea").style.display = "block";
-  document.getElementById("muteBar").style.display = "block";
+  setAppScreen("game");
 }
+
+function openExitConfirm() {
+  const modal = document.getElementById("exitConfirmModal");
+  if (!modal) return;
+  modal.hidden = false;
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function closeExitConfirm() {
+  const modal = document.getElementById("exitConfirmModal");
+  if (!modal) return;
+  modal.hidden = true;
+  modal.setAttribute("aria-hidden", "true");
+}
+
+function leaveCurrentGame() {
+  if (!currentGameCode) {
+    setAppScreen("home");
+    document.getElementById("message").textContent = "";
+    return;
+  }
+
+  socket.emit("leaveGame", { roomCode: currentGameCode });
+  closeExitConfirm();
+
+  currentGameCode = "";
+  gameWaitingToStart = false;
+  countdownRunning = false;
+  gameRunning = false;
+  matchEnded = false;
+  isGhost = false;
+  previousPlayerPoints = {};
+  bountyBanner = null;
+  arenaFeedItem = null;
+  players = [];
+  obstacles = [];
+  pickups = [];
+  if (document.getElementById("winnerScene")) {
+    document.getElementById("winnerScene").remove();
+  }
+  hideSpectatorOverlay();
+  hideRoundCountdown();
+  setAppScreen("home");
+  document.getElementById("message").textContent = "";
+  if (document.getElementById("playerList")) {
+    document.getElementById("playerList").innerHTML = "<h3>Players</h3>";
+  }
+}
+
+socket.on("leftGame", function () {
+  currentGameCode = "";
+  setAppScreen("home");
+  document.getElementById("message").textContent = "";
+  if (document.getElementById("winnerScene")) {
+    document.getElementById("winnerScene").remove();
+  }
+  hideSpectatorOverlay();
+  hideRoundCountdown();
+  gameWaitingToStart = false;
+  countdownRunning = false;
+  gameRunning = false;
+  matchEnded = false;
+  isGhost = false;
+});
 
 // Applies an incoming server snapshot to the local client model.
 // This keeps all rendering functions pure-ish: they read from local state only.
@@ -1485,9 +1610,34 @@ function handleGameAreaPointerCancel(event) {
 }
 
 const gameAreaElement = document.getElementById("gameArea");
+const leaveGameBtn = document.getElementById("leaveGameBtn");
+const exitConfirmModal = document.getElementById("exitConfirmModal");
+const exitConfirmCancel = document.querySelector(".exit-cancel-btn");
+const exitConfirmAction = document.querySelector(".exit-confirm-btn");
+
 gameAreaElement.addEventListener("pointerdown", handleGameAreaPointerDown);
 gameAreaElement.addEventListener("pointerup", handleGameAreaPointerUp);
 gameAreaElement.addEventListener("pointercancel", handleGameAreaPointerCancel);
+
+if (leaveGameBtn) {
+  leaveGameBtn.addEventListener("click", openExitConfirm);
+}
+
+if (exitConfirmCancel) {
+  exitConfirmCancel.addEventListener("click", closeExitConfirm);
+}
+
+if (exitConfirmAction) {
+  exitConfirmAction.addEventListener("click", leaveCurrentGame);
+}
+
+if (exitConfirmModal) {
+  exitConfirmModal.addEventListener("click", function (event) {
+    if (event.target === exitConfirmModal) {
+      closeExitConfirm();
+    }
+  });
+}
 
 document.addEventListener("keydown", function (event) {
   const activeElement = document.activeElement;
@@ -1737,7 +1887,6 @@ socket.on("joinedAsSpectator", function (data) {
   showGameArea();
   drawGame();
   updatePlayerList();
-  document.getElementById("lobby").style.display = "none";
   document.getElementById("message").textContent = "Spectating... You'll join as a player when the current match ends.";
 });
 

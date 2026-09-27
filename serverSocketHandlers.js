@@ -172,6 +172,52 @@ function registerSocketHandlers(io, deps) {
       io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
     });
 
+    socket.on("leaveGame", ({ roomCode }) => {
+      const room = rooms[roomCode];
+      if (!room) {
+        socket.leave(roomCode);
+        socket.emit("leftGame");
+        return;
+      }
+
+      if (room.players[socket.id]) {
+        delete room.players[socket.id];
+      }
+
+      if (room.spectators && room.spectators[socket.id]) {
+        delete room.spectators[socket.id];
+      }
+
+      socket.leave(roomCode);
+
+      const remainingPlayers = Object.keys(room.players).filter((id) => id !== BOT_ID);
+      const remainingSpectators = Object.keys(room.spectators || {});
+
+      if (room.hostId === socket.id && remainingPlayers.length > 0) {
+        room.hostId = remainingPlayers[0];
+      }
+
+      if (room.hostId === socket.id && remainingPlayers.length === 0 && remainingSpectators.length > 0) {
+        room.hostId = remainingSpectators[0];
+      }
+
+      if (remainingPlayers.length === 0 && remainingSpectators.length === 0) {
+        if (room.gameLoop) clearInterval(room.gameLoop);
+        if (room.victoryTimer) clearTimeout(room.victoryTimer);
+        if (room.autoRestartTimer) clearTimeout(room.autoRestartTimer);
+        delete rooms[roomCode];
+      } else {
+        if (!room.started) {
+          io.to(roomCode).emit("roomUpdated", getGameState(roomCode));
+        } else {
+          broadcastGameState(roomCode);
+          checkForRoundEnd(roomCode);
+        }
+      }
+
+      socket.emit("leftGame");
+    });
+
     socket.on("requestLeaderboard", () => {
       socket.emit("leaderboardUpdate", getLeaderboardData());
     });

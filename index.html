@@ -1,42 +1,90 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#5ea7e0" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Bird Royale" />
     <title>Bird Royale</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="assets/icon.svg" />
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <h1>Bird Royale <span id="version"></span></h1>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand-badge" aria-label="Bird Royale brand mark">🐦</div>
+        <div class="brand-copy">
+          <div class="brand-kicker">Arena showdown</div>
+          <h1>Bird Royale <span id="version"></span></h1>
+        </div>
+        <button id="installBtn" class="install-btn" hidden>Install App</button>
+      </header>
 
-    <div class="panel" id="lobby">
-      <h2>Lobby</h2>
+      <div class="panel lobby-shell" id="lobby">
+        <div class="lobby-hero">
+          <div class="hero-pill">Ready for flight</div>
+          <h2>Launch Lobby</h2>
+        </div>
 
-      <input id="playerName" placeholder="Your name" />
-      <br />
-      <input id="gameSpeedInput" type="number" min="1" max="99" value="3" placeholder="Game speed 1-99" />
-      <p>Speed: 1 = 0.1x, 10 = 1.0x, 99 = 9.9x</p>
-      <br />
+        <div class="launch-card">
+          <div class="section-label">Create match</div>
 
-      <input id="targetScoreInput" type="number" min="2" max="5" value="3" placeholder="Target score 2-5" />
-      <br />
-      <p>Target score: first to 2-5 round wins</p>
+          <label class="field-row">
+            <span>Player name</span>
+            <input id="playerName" placeholder="Your name" />
+          </label>
 
-      <button onclick="createGame()">Create Game</button>
+          <div class="settings-grid">
+            <label class="field-row compact">
+              <span>Speed</span>
+              <input id="gameSpeedInput" type="number" min="1" max="99" value="3" placeholder="3" />
+            </label>
 
-      <hr />
+            <label class="field-row compact">
+              <span>Target</span>
+              <input id="targetScoreInput" type="number" min="2" max="5" value="3" placeholder="3" />
+            </label>
+          </div>
 
-      <input id="gameCodeInput" placeholder="Game code" />
-      <br />
-      <button onclick="joinGame()">Join Game</button>
+          <p class="micro-copy">Speed: 1 = 0.1x, 10 = 1.0x, 99 = 9.9x</p>
+          <p class="micro-copy">First to 2–5 round wins</p>
 
-      <hr />
+          <button class="primary-action" onclick="createGame()">Create Game</button>
+        </div>
 
-      <button id="quickJoinBtn" onclick="quickJoin()">Quick Join a Running Game</button>
+        <div class="launch-card">
+          <div class="section-label">Join match</div>
+          <label class="field-row">
+            <span>Game code</span>
+            <input id="gameCodeInput" placeholder="Game code" />
+          </label>
+          <button class="secondary-action" onclick="joinGame()">Join Game</button>
+        </div>
 
-      <p id="message"></p>
-      <div id="playerList"></div>
+        <div class="quick-card">
+          <div class="quick-copy">
+            <strong>Quick match</strong>
+            <small>Jump into the next open room.</small>
+          </div>
+          <button id="quickJoinBtn" onclick="quickJoin()">Quick Join a Running Game</button>
+        </div>
+
+        <p id="message" class="status-banner"></p>
+        <div id="playerList"></div>
+      </div>
     </div>
 
     <div id="gameArea">
+      <div class="game-topbar">
+        <button id="leaveGameBtn" class="leave-game-btn" aria-label="Exit to lobby">
+          <span class="leave-game-icon">✕</span>
+          <span class="leave-game-text">Exit</span>
+        </button>
+      </div>
       <div id="arenaBackdrop">
         <div class="sun-halo"></div>
         <div class="sun-rays"></div>
@@ -86,6 +134,20 @@
 
     <div id="muteBar">
       <button id="muteBtn" onclick="toggleMute()">🔊 Sound</button>
+    </div>
+
+    <div id="exitConfirmModal" class="exit-confirm-modal" hidden>
+      <div class="exit-confirm-card">
+        <div class="exit-confirm-header">
+          <div class="exit-confirm-icon">✕</div>
+          <div class="exit-confirm-title">Leave match?</div>
+        </div>
+        <p>Return to the lobby and leave this room?</p>
+        <div class="exit-confirm-actions">
+          <button class="exit-cancel-btn" type="button">Cancel</button>
+          <button class="exit-confirm-btn" type="button">Yes, quit</button>
+        </div>
+      </div>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
