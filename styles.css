@@ -2,8 +2,12 @@ html, body {
   margin: 0;
   width: 100%;
   height: 100%;
-  overflow: hidden;
   overscroll-behavior: none;
+}
+
+html {
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 body {
@@ -15,12 +19,15 @@ body {
   background-attachment: fixed;
   text-align: center;
   min-height: 100vh;
+  min-height: 100svh;
+  min-height: calc(var(--app-vh, 1vh) * 100);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   padding: max(12px, env(safe-area-inset-top)) 0 max(12px, env(safe-area-inset-bottom));
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 body::before {
@@ -35,10 +42,16 @@ body::before {
 
 body[data-screen="home"] {
   justify-content: flex-start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
 }
 
-body[data-screen="game"] {
+body[data-screen="game"],
+body[data-screen="summary"] {
   justify-content: center;
+  overflow: hidden;
 }
 
 h1 {
@@ -60,11 +73,11 @@ h1 {
 }
 
 .app-shell {
-  width: min(92vw, 470px);
+  width: min(94vw, 520px);
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin-top: 4px;
+  gap: 12px;
+  margin-top: 2px;
   position: relative;
   z-index: 1;
 }
@@ -74,7 +87,11 @@ h1 {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 8px 8px 0;
+  padding: 10px 10px 4px;
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.4), rgba(221, 236, 255, 0.12));
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  box-shadow: 0 8px 18px rgba(35, 73, 110, 0.1);
 }
 
 .game-topbar {
@@ -188,18 +205,18 @@ h1 {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: min(92vw, 460px);
+  width: min(94vw, 520px);
   margin: 0 auto;
-  gap: 14px;
+  gap: 12px;
 }
 
 .panel {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(239, 244, 255, 0.96));
-  width: min(92vw, 460px);
+  width: min(94vw, 520px);
   margin: 0 auto;
-  padding: clamp(18px, 4vw, 24px);
+  padding: clamp(14px, 3.8vw, 22px);
   border: 2px solid rgba(44, 62, 80, 0.78);
-  border-radius: 22px;
+  border-radius: 20px;
   box-shadow: 0 18px 30px rgba(0, 0, 0, 0.15), 0 4px 14px rgba(74, 112, 158, 0.15), inset 0 1px 0 rgba(255,255,255,0.9);
   box-sizing: border-box;
 }
@@ -208,6 +225,12 @@ h1 {
   background:
     radial-gradient(circle at top right, rgba(255, 221, 111, 0.12), transparent 28%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(239, 244, 255, 0.95));
+}
+
+body[data-screen="home"] .lobby-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
 }
 
 .lobby-hero {
@@ -369,6 +392,15 @@ button:active {
   gap: 12px;
 }
 
+body[data-screen="home"] .quick-card {
+  order: -1;
+  align-items: stretch;
+  border: 1px solid rgba(30, 116, 34, 0.2);
+  background:
+    radial-gradient(circle at 82% 22%, rgba(110, 255, 129, 0.22), rgba(110, 255, 129, 0) 36%),
+    linear-gradient(180deg, rgba(233, 255, 238, 0.92), rgba(221, 246, 229, 0.88));
+}
+
 .quick-copy {
   display: flex;
   flex-direction: column;
@@ -394,6 +426,12 @@ button:active {
   border-color: rgba(0, 0, 0, 0.2);
   box-shadow: 0 6px 14px rgba(50, 205, 50, 0.2);
   color: #fff;
+}
+
+body[data-screen="home"] #quickJoinBtn {
+  width: 100%;
+  min-width: 0;
+  margin-top: 2px;
 }
 
 #quickJoinBtn:hover {
@@ -489,7 +527,8 @@ hr {
 #gameArea {
   width: min(92vw, 420px);
   aspect-ratio: 420 / 500;
-  max-height: calc(100vh - 180px);
+  max-height: calc(var(--app-vh, 1vh) * 100 - 180px);
+  max-height: calc(100svh - 180px);
   --ambient-wind: 0;
   --ambient-danger: 0;
   --ambient-life: 1;
@@ -2843,7 +2882,7 @@ hr {
 #leaderboardPanel {
   display: flex;
   width: min(92vw, 420px);
-  margin: 16px auto 30px;
+  margin: 12px auto 26px;
   gap: 0;
   border: 2px solid rgba(44, 62, 80, 0.8);
   border-radius: 18px;
@@ -2973,9 +3012,26 @@ body[data-screen="home"] #lobby {
     overflow-x: hidden;
   }
 
+  .app-shell {
+    width: 96vw;
+    gap: 10px;
+  }
+
+  .app-header {
+    padding: 9px 9px 2px;
+    gap: 10px;
+  }
+
+  .brand-badge {
+    width: 50px;
+    height: 50px;
+    border-radius: 15px;
+    font-size: 24px;
+  }
+
   h1 {
-    font-size: 36px;
-    margin-top: 16px;
+    font-size: clamp(26px, 8vw, 36px);
+    letter-spacing: 1.2px;
   }
 
   .panel,
@@ -2986,12 +3042,43 @@ body[data-screen="home"] #lobby {
   }
 
   .panel {
-    padding: 20px;
-    margin: 16px auto;
+    padding: 14px;
+    margin: 8px auto;
+    border-radius: 16px;
+  }
+
+  .launch-card,
+  .quick-card {
+    padding: 12px 12px 11px;
+    border-radius: 14px;
+  }
+
+  .quick-card,
+  body[data-screen="home"] .quick-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .quick-copy {
+    align-items: flex-start;
+  }
+
+  .settings-grid {
+    gap: 8px;
   }
 
   #gameArea {
-    height: 62vh;
+    height: min(62vh, calc(var(--app-vh, 1vh) * 60));
+  }
+
+  #leaderboardPanel {
+    margin-top: 10px;
+    border-radius: 16px;
+  }
+
+  .lb-half {
+    padding: 10px 8px 9px;
   }
 
   #roundMutatorBadge {
@@ -3011,3 +3098,28 @@ body[data-screen="home"] #lobby {
     max-width: 270px;
   }
 } 
+
+@media (max-height: 760px) {
+  body[data-screen="home"] {
+    padding-top: max(8px, env(safe-area-inset-top));
+  }
+
+  .app-header {
+    padding-top: 8px;
+    padding-bottom: 2px;
+  }
+
+  .brand-kicker {
+    font-size: 9px;
+    margin-bottom: 0;
+  }
+
+  .panel h2 {
+    font-size: clamp(20px, 4.6vw, 24px);
+    margin-top: 6px;
+  }
+
+  .micro-copy {
+    font-size: 11px;
+  }
+}
