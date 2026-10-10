@@ -31,7 +31,22 @@ if (installBtn) {
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", function () {
-    navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).catch(function () {
+    navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).then(function (registration) {
+      registration.addEventListener("updatefound", function () {
+        const installing = registration.installing;
+        if (!installing) return;
+
+        installing.addEventListener("statechange", function () {
+          if (installing.state === "installed" && navigator.serviceWorker.controller) {
+            window.location.reload();
+          }
+        });
+      });
+
+      if (registration.waiting) {
+        window.location.reload();
+      }
+    }).catch(function () {
       // Service worker registration is optional for local or restricted environments.
     });
   });
